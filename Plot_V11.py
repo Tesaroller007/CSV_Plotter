@@ -927,6 +927,48 @@ def set_marker():
                                         parent=marker_window)[1] or color_display.cget("bg")
              )).grid(row=4, column=2)
 
+    
+    def edit_selected_marker(event):
+        selection = marker_list.curselection()
+        if selection:
+            index = selection[0]
+            marker = markers[index]
+
+            # set marker type and update visible fields
+            marker_type_var.set(marker.get('type', 'vertical'))
+            update_fields()
+
+            # populate X field
+            if marker.get('x') is not None:
+                x_entry.delete(0, tk.END)
+                x_entry.insert(0, f"{marker['x']}")
+            else:
+                x_entry.delete(0, tk.END)
+
+            # populate Y field
+            if marker.get('y') is not None:
+                y_entry.delete(0, tk.END)
+                y_entry.insert(0, f"{marker['y']}")
+            else:
+                y_entry.delete(0, tk.END)
+
+            # color
+            color_display.config(bg=marker.get('color', '#000000'))
+
+            # set subplot and source (y-axis) selections if present
+            try:
+                subplot_select_var.set(str(marker.get('subplot', 1)))
+            except Exception:
+                pass
+            try:
+                source_type_var.set(marker.get('y-axis', 'primary'))
+            except Exception:
+                pass
+
+            # remember index for overwrite on save
+            marker_window.selected_index = index
+            status_label.config(text=f"Bearbeite Eintrag #{index + 1}")
+    
     def add_marker():
         marker_type = marker_type_var.get()
         subplot_num = int(subplot_select_var.get())
