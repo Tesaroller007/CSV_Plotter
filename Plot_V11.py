@@ -13,7 +13,7 @@ import os
 # Global variables
 df = None
 marker_x = None
-grid_settings = {'visible': True, 'color': 'gray', 'linewidth': 0.5, 'ticks': True}
+grid_settings = {'use_subplot1_for_all': True}
 
 width_pad_root = 20
 
@@ -152,19 +152,52 @@ def reload_plot():
             else:
                 appearance_source = subcfg
 
-            visible = subcfg.get('grid', grid_settings.get('visible', True))
+            visible = subcfg.get('grid', grid_settings.get('grid', True))
             # per-subplot overrides (fallback to global)
             color = appearance_source.get('grid_color', grid_settings.get('color', 'gray'))
             linewidth = appearance_source.get('grid_linewidth', grid_settings.get('linewidth', 0.5))
-            ticks = appearance_source.get('grid_ticks', grid_settings.get('ticks', True))
 
-            ax.grid(visible, color=color, linewidth=linewidth)
-            # control tick visibility according to per-subplot setting
-            if not ticks:
-                ax.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+            # Show grid according to selected checkbox:
+            # - if "use_subplot1_for_all" is active, use subplot 1's 'grid' value as override for visibility
+            if grid_settings.get('use_subplot1_for_all', False):
+                vis_source = subplot_settings['subplots'].get(1, {})
+                visible = vis_source.get('grid', grid_settings.get('visible', True))
             else:
-                # ensure ticks shown if enabled (use default behaviour for labels)
-                ax.tick_params(left=True, bottom=True, labelleft=True, labelbottom=True)
+                visible = subcfg.get('grid', grid_settings.get('visible', True))
+
+            # Apply grid to primary axis only (secondary shares ticks/labels)
+            try:
+                if visible:
+                    ax.grid(True, color=color, linewidth=linewidth)
+                else:
+                    # call grid(False) without line properties to avoid the UserWarning
+                    ax.grid(False)
+            except Exception:
+                pass
+            
+            # Handle tick visibility per axis
+            if grid_settings.get('use_subplot1_for_all', False):
+                appearance_source = subplot_settings['subplots'].get(1, {})
+            else:
+                appearance_source = subcfg
+
+            print(f"grid_settings for subplot {idx}: {appearance_source}")
+
+            ticks_left = appearance_source.get('ticks_left', grid_settings.get('ticks_left', True))
+            ticks_bottom = appearance_source.get('ticks_bottom', grid_settings.get('ticks_bottom', True))
+            ticks_right = appearance_source.get('ticks_right', grid_settings.get('ticks_right', True))
+
+            print(f"ticks_left: {ticks_left}, ticks_bottom: {ticks_bottom}, ticks_right: {ticks_right}")
+
+            # Primary Y-axis (left)
+            ax.tick_params(left=ticks_left, labelleft=ticks_left)
+            
+            # X-axis (bottom)
+            ax.tick_params(bottom=ticks_bottom, labelbottom=ticks_bottom)
+
+            # If secondary axis exists, handle its ticks
+            if secondary_axes[idx] is not None:
+                secondary_axes[idx].tick_params(right=ticks_right, labelright=ticks_right)
 
             # If a secondary axis exists, set its ylabel from stored settings and sync tick visibility
             if secondary_axes[idx] is not None:
@@ -173,13 +206,6 @@ def reload_plot():
                     secondary_axes[idx].set_ylabel(sec_ylabel)
                 except Exception:
                     pass
-                if not ticks:
-                    secondary_axes[idx].tick_params(right=False, labelright=False)
-                else:
-                    secondary_axes[idx].tick_params(right=True, labelright=True)
-            
-            if not grid_settings.get('ticks', True):
-                secondary_axes[idx].tick_params(right=False, labelright=False)
 
             idx += 1
 
@@ -374,7 +400,9 @@ def reload_plot():
                 axins.set_ylim(region['y'])
                 
                 if region.get('show_grid', True):
-                    axins.grid(True, color=grid_settings.get('color', 'gray'), linewidth=grid_settings.get('linewidth', 0.5))
+                    c = grid_settings.get('color', 'gray')
+                    lw = grid_settings.get('linewidth', 0.5)
+                    axins.grid(True, color=c, linewidth=lw)
                 else:
                     axins.grid(False)
                     
@@ -491,20 +519,12 @@ def open_subplot_settings():
                 ylabel2_entry = None
                 next_row = 3
 
-            grid_var = tk.BooleanVar(value=subcfg.get('grid', True))
-            ttk.Checkbutton(subplot_label, text="Show Grid", variable=grid_var).grid(row=next_row, column=0, sticky="w", padx=5, pady=2)
-
-            legend_var = tk.BooleanVar(value=subcfg.get('legend', True))
-            ttk.Checkbutton(subplot_label, text="Show Legend", variable=legend_var).grid(row=next_row, column=1, sticky="w", padx=5, pady=2)
-
-            # store refs (include optional secondary ylabel widget)
+            # store refs (exclude grid and legend widgets)
             widgets[i] = {
                 'title': title_entry,
                 'xlabel': xlabel_entry,
                 'ylabel': ylabel_entry,
-                'ylabel_secondary': ylabel2_entry,
-                'grid': grid_var,
-                'legend': legend_var
+                'ylabel_secondary': ylabel2_entry
             }
 
             # allow the entry to expand horizontally
@@ -552,14 +572,21 @@ def open_subplot_settings():
 
         # update each configured subplot from widgets
         for i, w in widgets.items():
+            # preserve existing grid/legend flags if present in config (do not overwrite from UI)
+            existing = subplot_settings['subplots'].get(i, {})
             subplot_settings['subplots'][i] = {
                 'title': w['title'].get(),
                 'xlabel': w['xlabel'].get(),
                 'ylabel': w['ylabel'].get(),
                 # save secondary ylabel if widget present
                 'ylabel_secondary': w['ylabel_secondary'].get() if w.get('ylabel_secondary') else '',
-                'grid': w['grid'].get(),
-                'legend': w['legend'].get(),
+                'grid': existing.get('grid', True),
+                'grid_color': existing.get('grid_color', 'gray'),
+                'grid_linewidth': existing.get('grid_linewidth', 0.5),
+                'ticks_left': existing.get('ticks_left', True),
+                'ticks_bottom': existing.get('ticks_bottom', True),
+                'ticks_right': existing.get('ticks_right', True),
+                'legend': existing.get('legend', True),
                 'position': int(f"{rows}{cols}{i}")
             }
 
@@ -870,26 +897,27 @@ def open_grid_settings():
         grid_window.focus_force()
 
     def update_fields_grid(*args):
-        # show values for currently selected target (per-subplot if available, otherwise global)
         target = target_var.get()
         try:
             si = int(target)
             subcfg = subplot_settings['subplots'].get(si, {})
-            # Populate each control from subcfg if present, otherwise fall back to global grid_settings
+            # Update all fields including individual tick settings
             grid_var.set(subcfg.get('grid', grid_settings.get('visible', True)))
             grid_color_display.config(bg=subcfg.get('grid_color', grid_settings.get('color', 'gray')))
             grid_width_slider.set(subcfg.get('grid_linewidth', grid_settings.get('linewidth', 0.5)))
-            ticks_var.set(subcfg.get('grid_ticks', grid_settings.get('ticks', True)))
+            ticks_left_var.set(subcfg.get('ticks_left', grid_settings.get('ticks_left', True)))
+            ticks_bottom_var.set(subcfg.get('ticks_bottom', grid_settings.get('ticks_bottom', True)))
+            ticks_right_var.set(subcfg.get('ticks_right', grid_settings.get('ticks_right', True)))
         except Exception:
-            # If parsing fails, show global settings
             grid_var.set(grid_settings.get('visible', True))
             grid_color_display.config(bg=grid_settings.get('color', 'gray'))
             grid_width_slider.set(grid_settings.get('linewidth', 0.5))
-            ticks_var.set(grid_settings.get('ticks', True))
+            ticks_left_var.set(grid_settings.get('ticks_left', True))
+            ticks_bottom_var.set(grid_settings.get('ticks_bottom', True))
+            ticks_right_var.set(grid_settings.get('ticks_right', True))
 
-        # show/hide "Use Subplot 1 for all" only when Subplot 1 is selected
         if target == "1":
-            use_for_all_chk.grid(row=5, column=0, columnspan=3, sticky="w", padx=5, pady=2)
+            use_for_all_chk.grid(row=7, column=0, columnspan=3, sticky="w", padx=5, pady=2)
             use_for_all_var.set(grid_settings.get('use_subplot1_for_all', False))
         else:
             use_for_all_chk.grid_remove()
@@ -899,9 +927,10 @@ def open_grid_settings():
         visible = grid_var.get()
         color = grid_color_display.cget("bg")
         linewidth = grid_width_slider.get()
-        ticks = ticks_var.get()
+        ticks_left = ticks_left_var.get()
+        ticks_bottom = ticks_bottom_var.get()
+        ticks_right = ticks_right_var.get()
 
-        # apply appearance only to selected subplot (store per-subplot keys)
         try:
             si = int(target)
             if si not in subplot_settings['subplots']:
@@ -920,18 +949,59 @@ def open_grid_settings():
             subcfg['grid'] = visible
             subcfg['grid_color'] = color
             subcfg['grid_linewidth'] = float(linewidth)
-            subcfg['grid_ticks'] = bool(ticks)
+            subcfg['ticks_left'] = bool(ticks_left)
+            subcfg['ticks_bottom'] = bool(ticks_bottom)
+            subcfg['ticks_right'] = bool(ticks_right)
         except Exception:
-            # fallback: update global defaults
             grid_settings['visible'] = visible
             grid_settings['color'] = color
             grid_settings['linewidth'] = float(linewidth)
-            grid_settings['ticks'] = bool(ticks)
+            grid_settings['ticks_left'] = bool(ticks_left)
+            grid_settings['ticks_bottom'] = bool(ticks_bottom)
+            grid_settings['ticks_right'] = bool(ticks_right)
 
-        # If user selected Subplot 1 and checked "use for all", set override flag.
         if target == "1":
             grid_settings['use_subplot1_for_all'] = bool(use_for_all_var.get())
 
+        reload_plot()
+
+    def reset_grid_defaults():
+        # define defaults
+        defaults = {
+            'visible': True,
+            'color': 'gray',
+            'linewidth': 0.5,
+            'ticks_left': True,
+            'ticks_bottom': True,
+            'ticks_right': True,
+            'use_subplot1_for_all': False
+        }
+
+        # update global grid_settings
+        grid_settings.update(defaults)
+
+        # update per-subplot settings to defaults (preserve unrelated keys)
+        rows, cols = map(int, subplot_settings['layout'].split('x'))
+        for si in range(1, rows * cols + 1):
+            subcfg = subplot_settings['subplots'].setdefault(si, {})
+            subcfg['grid'] = defaults['visible']
+            subcfg['grid_color'] = defaults['color']
+            subcfg['grid_linewidth'] = float(defaults['linewidth'])
+            subcfg['ticks_left'] = defaults['ticks_left']
+            subcfg['ticks_bottom'] = defaults['ticks_bottom']
+            subcfg['ticks_right'] = defaults['ticks_right']
+
+        # update UI controls to reflect defaults for currently selected target
+        grid_var.set(defaults['visible'])
+        grid_color_display.config(bg=defaults['color'])
+        grid_width_slider.set(defaults['linewidth'])
+        ticks_left_var.set(defaults['ticks_left'])
+        ticks_bottom_var.set(defaults['ticks_bottom'])
+        ticks_right_var.set(defaults['ticks_right'])
+        use_for_all_var.set(defaults['use_subplot1_for_all'])
+
+        # refresh fields and redraw plot
+        update_fields_grid()
         reload_plot()
 
     grid_window = tk.Toplevel(root)
@@ -963,15 +1033,26 @@ def open_grid_settings():
     grid_width_slider.set(grid_settings.get('linewidth', 0.5))
     grid_width_slider.grid(row=3, column=1, columnspan=2, sticky="we")
 
-    tk.Label(grid_window, text="Ticks (show in grid):").grid(row=4, column=0, sticky="w")
-    ticks_var = tk.BooleanVar(value=grid_settings.get('ticks', True))
-    tk.Checkbutton(grid_window, variable=ticks_var).grid(row=4, column=1, columnspan=2, sticky="w")
+    # Replace single ticks checkbox with three separate controls
+    tk.Label(grid_window, text="Ticks:").grid(row=4, column=0, sticky="w")
+    
+    ticks_left_var = tk.BooleanVar(value=grid_settings.get('ticks_left', True))
+    tk.Checkbutton(grid_window, text="Left (Primary Y)", variable=ticks_left_var).grid(row=4, column=1, padx=5, sticky="w")
+    
+    ticks_bottom_var = tk.BooleanVar(value=grid_settings.get('ticks_bottom', True))
+    tk.Checkbutton(grid_window, text="Bottom (X)", variable=ticks_bottom_var).grid(row=5, column=1, padx=5, sticky="w")
+    
+    ticks_right_var = tk.BooleanVar(value=grid_settings.get('ticks_right', True))
+    tk.Checkbutton(grid_window, text="Right (Secondary Y)", variable=ticks_right_var).grid(row=6, column=1, padx=5, sticky="w")
+
 
     # "Use Subplot 1 for all" checkbox (created once, shown only when Subplot 1 selected)
     use_for_all_var = tk.BooleanVar(value=grid_settings.get('use_subplot1_for_all', False))
     use_for_all_chk = tk.Checkbutton(grid_window, text="Use Subplot 1 for all", variable=use_for_all_var)
 
-    tk.Button(grid_window, text="Apply", command=apply_grid_settings).grid(row=6, column=0, columnspan=3, pady=10)
+    # Buttons: Reset + Apply
+    tk.Button(grid_window, text="Reset", command=reset_grid_defaults).grid(row=8, column=0, padx=5, pady=10)
+    tk.Button(grid_window, text="Apply", command=apply_grid_settings).grid(row=8, column=1, columnspan=2, pady=10)
 
     # initialize fields according to current selection
     update_fields_grid()
