@@ -242,6 +242,7 @@ def reload_plot():
         target_subplot = int(marker.get('subplot', 1))
         target_yaxis = marker.get('y-axis', 'primary')
         axis_for_marker = axes.get(target_subplot)
+        show_markers = legend_settings.get('show_markers', True)
         if target_yaxis == 'secondary':
             if secondary_axes.get(target_subplot) is None and axis_for_marker is not None:
                 secondary_axes[target_subplot] = axis_for_marker.twinx()
@@ -250,42 +251,80 @@ def reload_plot():
             continue
         try:
             if marker['type'] == 'horizontal' and 'y' in marker:
-                axis_for_marker.axhline(y=marker['y'], color=marker['color'], linestyle='--', label=f"y={marker['y']}")
+                label = f"y={marker['y']}" if legend_settings.get('show_markers', True) else ""
+                axis_for_marker.axhline(y=marker['y'], color=marker['color'], linestyle='--', label=label)
             elif marker['type'] == 'vertical' and 'x' in marker:
-                axis_for_marker.axvline(x=marker['x'], color=marker['color'], linestyle='--', label=f"x={marker['x']}")
+                label = f"x={marker['x']}" if legend_settings.get('show_markers', True) else ""
+                axis_for_marker.axvline(x=marker['x'], color=marker['color'], linestyle='--', label=label)
             elif marker['type'] == 'point' and 'x' in marker and 'y' in marker:
-                axis_for_marker.plot(marker['x'], marker['y'], marker='o', color=marker['color'], label=f"({marker['x']}, {marker['y']})")
+                label = f"({marker['x']}, {marker['y']})" if legend_settings.get('show_markers', True) else ""
+                axis_for_marker.plot(marker['x'], marker['y'], marker='o', color=marker['color'], label=label)
             elif marker['type'] in ('xpoint', 'ypoint') and 'x' in marker and 'y' in marker:
-                axis_for_marker.plot(marker['x'], marker['y'], marker='o', color=marker['color'], label=f"({marker['x']:.2e}, {marker['y']:.2e})")
+                label = f"({marker['x']:.2e}, {marker['y']:.2e})" if legend_settings.get('show_markers', True) else ""
+                axis_for_marker.plot(marker['x'], marker['y'], marker='o', color=marker['color'], label=label)
         except Exception:
             print("failed to set marker")
 
-    # Legend: combine handles/labels from axes that have legend enabled
-    all_handles = []
-    all_labels = []
-    for i in range(1, rows * cols + 1):
-        ax_i = axes.get(i)
-        sec_i = secondary_axes.get(i)
-        if ax_i:
-            h, l = ax_i.get_legend_handles_labels()
-            all_handles += h
-            all_labels += l
-        if sec_i:
-            h2, l2 = sec_i.get_legend_handles_labels()
-            all_handles += h2
-            all_labels += l2
+    if legend_settings.get('visible', True):
+            legend_fontsize = legend_settings.get('fontsize', '10')
+            legend_loc = legend_settings.get('loc', 'upper right')
+            legend_frame = legend_settings.get('frameon', True)
+            legend_alpha = legend_settings.get('alpha', 1.0)
+            legend_ncol = int(legend_settings.get('ncol', 1))
+            all_in_subplot1 = legend_settings.get('all_in_subplot1', False)
 
-    if legend_settings.get('visible', True) and all_handles:
-        legend_fontsize = legend_settings.get('fontsize', '10')
-        legend_loc = legend_settings.get('loc', 'upper right')
-        legend_frame = legend_settings.get('frameon', True)
-        legend_alpha = legend_settings.get('alpha', 1.0)
-        legend_ncol = int(legend_settings.get('ncol', 1))
-        # attach legend to first axis that exists
-        attach_ax = axes.get(1) or next(iter(axes.values()))
-        legend = attach_ax.legend(all_handles, all_labels, loc=legend_loc, frameon=legend_frame,
-                                  fontsize=legend_fontsize, ncol=legend_ncol)
-        legend.get_frame().set_alpha(legend_alpha)
+            if all_in_subplot1:
+                # Sammle alle handles/labels über alle Subplots
+                all_handles = []
+                all_labels = []
+                for i in range(1, rows * cols + 1):
+                    ax_i = axes.get(i)
+                    sec_i = secondary_axes.get(i)
+                    # Sammle erst die handles/labels von der primären Achse
+                    if ax_i:
+                        h, l = ax_i.get_legend_handles_labels()
+                        all_handles.extend(h)
+                        all_labels.extend(l)
+                    # Dann von der sekundären Achse, falls vorhanden
+                    if sec_i:
+                        h2, l2 = sec_i.get_legend_handles_labels()
+                        all_handles.extend(h2)
+                        all_labels.extend(l2)
+
+                # Erstelle eine gemeinsame Legende in Subplot 1
+                if all_handles:
+                    # Wähle sekundäre Achse falls vorhanden, sonst primäre
+                    attach_ax = secondary_axes.get(1) or axes.get(1) or next(iter(axes.values()))
+                    legend = attach_ax.legend(all_handles, all_labels, 
+                                            loc=legend_loc, frameon=legend_frame,
+                                            fontsize=legend_fontsize, ncol=legend_ncol)
+                    legend.get_frame().set_alpha(legend_alpha)
+            else:
+                # Separate Legenden für jeden Subplot
+                for i in range(1, rows * cols + 1):
+                    ax_i = axes.get(i)
+                    sec_i = secondary_axes.get(i)
+                    subplot_handles = []
+                    subplot_labels = []
+
+                    # Sammle erst handles/labels von primärer Achse
+                    if ax_i:
+                        h, l = ax_i.get_legend_handles_labels()
+                        subplot_handles.extend(h)
+                        subplot_labels.extend(l)
+                    # Dann von sekundärer Achse falls vorhanden
+                    if sec_i:
+                        h2, l2 = sec_i.get_legend_handles_labels()
+                        subplot_handles.extend(h2)
+                        subplot_labels.extend(l2)
+
+                    if subplot_handles:
+                        # Hefte Legende an sekundäre Achse falls vorhanden
+                        attach_ax = sec_i if sec_i is not None else ax_i
+                        legend = attach_ax.legend(subplot_handles, subplot_labels,
+                                             loc=legend_loc, frameon=legend_frame,
+                                             fontsize=legend_fontsize, ncol=legend_ncol)
+                        legend.get_frame().set_alpha(legend_alpha)
 
     for region in zoom_regions:
             region_subplot = int(region.get('subplot', 1))
@@ -1387,12 +1426,11 @@ def open_legend_settings():
             'frameon': frame_var.get(),
             'alpha': alpha_scale.get(),
             'ncol': ncol_entry.get(),
-            'visible': visible_var.get()
+            'visible': visible_var.get(),
+            'all_in_subplot1': all_in_subplot1_var.get(),
+            'show_markers': show_markers_var.get()
         }
-        # Hier kannst du die Einstellungen speichern oder direkt anwenden
-        print("Legenden-Einstellungen:", legend_settings)
-        #legend_window.destroy()
-        reload_plot()  # Optional: Plot neu laden mit neuen Einstellungen
+        reload_plot()
 
     legend_window = tk.Toplevel(root)
     legend_window.title("Legenden-Einstellungen")
@@ -1406,7 +1444,9 @@ def open_legend_settings():
     # Position
     tk.Label(legend_window, text="Position:").grid(row=1, column=0, sticky="w")
     loc_var = tk.StringVar(value=legend_settings.get('loc'))
-    loc_menu = tk.OptionMenu(legend_window, loc_var, "best", "upper right", "upper left", "lower right", "lower left", "center", "center right", "center left", "lower center", "upper center")
+    loc_menu = tk.OptionMenu(legend_window, loc_var, "best", "upper right", "upper left", 
+                            "lower right", "lower left", "center", "center right", 
+                            "center left", "lower center", "upper center")
     loc_menu.grid(row=1, column=1)
 
     # Rahmen
@@ -1431,8 +1471,19 @@ def open_legend_settings():
     visible_var = tk.BooleanVar(value=legend_settings.get('visible'))
     tk.Checkbutton(legend_window, variable=visible_var).grid(row=5, column=1)
 
+    # Neue Option: Alle Legenden in Subplot 1
+    all_in_subplot1_var = tk.BooleanVar(value=legend_settings.get('all_in_subplot1', False))
+    tk.Checkbutton(legend_window, text="Alle Legenden in Subplot 1", 
+                   variable=all_in_subplot1_var).grid(row=6, column=0, columnspan=2, sticky="w")
+
+    # Neue Option: Marker in Legende anzeigen
+    show_markers_var = tk.BooleanVar(value=legend_settings.get('show_markers', True))
+    tk.Checkbutton(legend_window, text="Marker in Legende anzeigen", 
+                   variable=show_markers_var).grid(row=7, column=0, columnspan=2, sticky="w")
+
     # Button
-    tk.Button(legend_window, text="Übernehmen", command=apply_legend_settings).grid(row=6, column=0, columnspan=2, pady=10)
+    tk.Button(legend_window, text="Übernehmen", 
+              command=apply_legend_settings).grid(row=8, column=0, columnspan=2, pady=10)
 
 def open_axis_settings():
     axis_window = tk.Toplevel(root)
