@@ -13,8 +13,6 @@ import os
 # Global variables
 df = None
 marker_x = None
-grid_settings = {'use_subplot1_for_all': True}
-
 width_pad_root = 20
 
 # Beispielhafte Marker-Datenstruktur
@@ -37,15 +35,19 @@ legend_settings = {
 }
 
 axis_settings = {
-    "x_axis_type": "linear",
-    "y_axis_type": "linear",
-    "x_min": "",
-    "x_max": "",
-    "y_min": "",
-    "y_max": "",
-    "invert_x": False,
-    "invert_y": False,
-    "auto_ticks": True
+    'subplots': {
+        1: {
+            "x_axis_type": "linear",
+            "y_axis_type": "linear",
+            "x_min": "",
+            "x_max": "",
+            "y_min": "",
+            "y_max": "",
+            "invert_x": False,
+            "invert_y": False,
+            "auto_ticks": True
+        }
+    },
 }
 
 subplot_settings = {
@@ -63,6 +65,17 @@ subplot_settings = {
     }
 }
 
+grid_settings = {'use_subplot1_for_all': True}
+
+# Neuer globaler Default für Save-Dialog-Werte und Presets-Ordner
+save_settings = {
+    "format": "PDF",
+    "width": 6,
+    "height": 4
+}
+
+PRESETS_DIR = os.path.join(os.path.dirname(__file__), "presets")
+os.makedirs(PRESETS_DIR, exist_ok=True)
 
 
 #mpl.rcParams.update({
@@ -83,11 +96,11 @@ def reload_plot():
     if entries is None:
         return
 
-    print(f"Subplot_settings: {subplot_settings}")
-    print(f"Grid_settings: {grid_settings}")
-    print(f"Axis_settings: {axis_settings}")
-    print(f"Legend_settings: {legend_settings}")
-    print(f"Zoom_regions: {zoom_regions}")
+    print(f"Subplot_settings: {subplot_settings}\n")
+    print(f"Grid_settings: {grid_settings}\n")
+    print(f"Axis_settings: {axis_settings}\n")
+    print(f"Legend_settings: {legend_settings}\n")
+    print(f"Zoom_regions: {zoom_regions}\n")
 
     # Clear existing figure (reuse fig so canvas stays valid)
     fig.clf()
@@ -592,7 +605,8 @@ def open_subplot_settings():
 
         # remove any leftover subplot configs beyond new size
         max_idx = rows * cols
-        keys_to_remove = [k for k in list(subplot_settings['subplots'].keys()) if k > max_idx]
+        keys_to_remove = [k for k in list(subplot_settings['subplots'].keys()) 
+                         if isinstance(k, (int, str)) and int(k) > max_idx]
         for k in keys_to_remove:
             del subplot_settings['subplots'][k]
 
@@ -1667,21 +1681,210 @@ def open_axis_settings():
 
     ttk.Button(axis_window, text="Übernehmen", command=apply_settings).grid(row=6, column=0, columnspan=4, pady=10)
 
+
+def open_presets_manager():
+    """
+    Presets manager:
+    - save current settings as preset (JSON in PRESETS_DIR)
+    - load preset (apply to application state)
+    - delete / import / export presets
+    Stored keys in preset JSON:
+     - subplot_settings
+     - grid_settings
+     - legend_settings
+     - zoom_regions
+     - markers
+     - axis_settings
+     - plot_title
+     - save_settings
+    """
+    def list_presets():
+        files = []
+        try:
+            for fn in os.listdir(PRESETS_DIR):
+                if fn.lower().endswith(".json"):
+                    files.append(fn)
+        except Exception:
+            pass
+        return sorted(files)
+
+    def refresh_list():
+        preset_list.delete(0, tk.END)
+        for fn in list_presets():
+            preset_list.insert(tk.END, fn)
+
+    def apply_preset_data(preset):
+        # Apply preset dict to global state and UI
+        global subplot_settings, grid_settings, legend_settings, zoom_regions, markers, axis_settings, save_settings
+        try:
+            if 'subplot_settings' in preset:
+                # Convert string subplot keys to integers
+                if 'subplots' in preset['subplot_settings']:
+                    subplots = {}
+                    for key, value in preset['subplot_settings']['subplots'].items():
+                        # Convert string key to integer
+                        try:
+                            int_key = int(key)
+                            subplots[int_key] = value
+                        except ValueError:
+                            continue
+                    preset['subplot_settings']['subplots'] = subplots
+                subplot_settings = preset['subplot_settings']
+            if 'grid_settings' in preset:
+                grid_settings = preset['grid_settings']
+            if 'legend_settings' in preset:
+                legend_settings = preset['legend_settings']
+            if 'zoom_regions' in preset:
+                zoom_regions.clear()
+                zoom_regions.extend(preset.get('zoom_regions', []))
+            if 'markers' in preset:
+                markers.clear()
+                markers.extend(preset.get('markers', []))
+            if 'axis_settings' in preset:
+                subplots = {}
+                if 'subplots' in preset['axis_settings']:
+                    for key, value in preset['axis_settings']['subplots'].items():
+                        try:
+                            int_key = int(key)
+                            subplots[int_key] = value
+                        except ValueError:
+                            continue
+                    preset['axis_settings']['subplots'] = subplots
+                axis_settings = preset['axis_settings']
+            if 'plot_title' in preset and title_entry is not None:
+                try:
+                    title_entry.delete(0, tk.END)
+                    title_entry.insert(0, preset.get('plot_title', ''))
+                except Exception:
+                    pass
+            if 'save_settings' in preset:
+                save_settings.update(preset.get('save_settings', {}))
+        except Exception as e:
+            messagebox.showerror("Preset Fehler", f"Fehler beim Anwenden des Presets:\n{e}", parent=preset_win)
+            return
+        reload_plot()
+        messagebox.showinfo("Preset geladen", "Preset erfolgreich angewendet.", parent=preset_win)
+
+        print(f"subplot-settings: {subplot_settings}")
+
+    def save_current_preset():
+        name = simpledialog.askstring("Preset Name", "Name für das Preset:", parent=preset_win)
+        if not name:
+            return
+        filename = f"{name}.json"
+        path = os.path.join(PRESETS_DIR, filename)
+        preset = {
+            "subplot_settings": subplot_settings,
+            "grid_settings": grid_settings,
+            "legend_settings": legend_settings,
+            "zoom_regions": zoom_regions,
+            "markers": markers,
+            "axis_settings": axis_settings,
+            "plot_title": title_entry.get() if title_entry else "",
+            "save_settings": save_settings
+        }
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(preset, f, indent=2, ensure_ascii=False)
+            refresh_list()
+            messagebox.showinfo("Gespeichert", f"Preset gespeichert: {filename}", parent=preset_win)
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Fehler beim Speichern des Presets:\n{e}", parent=preset_win)
+
+    def load_selected_preset():
+        sel = preset_list.curselection()
+        if not sel:
+            messagebox.showwarning("Auswahl", "Bitte ein Preset auswählen.", parent=preset_win)
+            return
+        filename = preset_list.get(sel[0])
+        path = os.path.join(PRESETS_DIR, filename)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                preset = json.load(f)
+            apply_preset_data(preset)
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Fehler beim Laden des Presets:\n{e}", parent=preset_win)
+
+    def delete_selected_preset():
+        sel = preset_list.curselection()
+        if not sel:
+            messagebox.showwarning("Auswahl", "Bitte ein Preset auswählen.", parent=preset_win)
+            return
+        filename = preset_list.get(sel[0])
+        path = os.path.join(PRESETS_DIR, filename)
+        if messagebox.askyesno("Löschen bestätigen", f"Möchtest du '{filename}' löschen?", parent=preset_win):
+            try:
+                os.remove(path)
+            except Exception as e:
+                messagebox.showerror("Fehler", f"Fehler beim Löschen:\n{e}", parent=preset_win)
+            refresh_list()
+
+    def import_preset():
+        fp = filedialog.askopenfilename(parent=preset_win, filetypes=[("JSON files", "*.json")])
+        if not fp:
+            return
+        try:
+            with open(fp, "r", encoding="utf-8") as f:
+                preset = json.load(f)
+            # ask for name under presets dir
+            name = simpledialog.askstring("Importieren als", "Name für das Preset:", parent=preset_win)
+            if not name:
+                return
+            out = os.path.join(PRESETS_DIR, f"{name}.json")
+            with open(out, "w", encoding="utf-8") as f:
+                json.dump(preset, f, indent=2, ensure_ascii=False)
+            refresh_list()
+            messagebox.showinfo("Importiert", f"Preset importiert als {name}.json", parent=preset_win)
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Import fehlgeschlagen:\n{e}", parent=preset_win)
+
+    def export_selected_preset():
+        sel = preset_list.curselection()
+        if not sel:
+            messagebox.showwarning("Auswahl", "Bitte ein Preset auswählen.", parent=preset_win)
+            return
+        filename = preset_list.get(sel[0])
+        src = os.path.join(PRESETS_DIR, filename)
+        dest = filedialog.asksaveasfilename(parent=preset_win, defaultextension=".json", initialfile=filename, filetypes=[("JSON files", "*.json")])
+        if not dest:
+            return
+        try:
+            with open(src, "r", encoding="utf-8") as fsrc, open(dest, "w", encoding="utf-8") as fdst:
+                fdst.write(fsrc.read())
+            messagebox.showinfo("Exportiert", f"Preset exportiert nach:\n{dest}", parent=preset_win)
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Export fehlgeschlagen:\n{e}", parent=preset_win)
+
+    preset_win = tk.Toplevel(root)
+    preset_win.title("Presets Manager")
+    preset_win.geometry("520x340")
+
+    preset_list = tk.Listbox(preset_win, width=60, height=12)
+    preset_list.grid(row=0, column=0, columnspan=4, padx=8, pady=8, sticky="nsew")
+
+    tk.Button(preset_win, text="Save Current as Preset", command=save_current_preset).grid(row=1, column=0, padx=5, pady=5, sticky="we")
+    tk.Button(preset_win, text="Load Selected", command=load_selected_preset).grid(row=1, column=1, padx=5, pady=5, sticky="we")
+    tk.Button(preset_win, text="Delete Selected", command=delete_selected_preset).grid(row=1, column=2, padx=5, pady=5, sticky="we")
+    tk.Button(preset_win, text="Import Preset...", command=import_preset).grid(row=2, column=0, padx=5, pady=5, sticky="we")
+    tk.Button(preset_win, text="Export Selected...", command=export_selected_preset).grid(row=2, column=1, padx=5, pady=5, sticky="we")
+    tk.Button(preset_win, text="Close", command=preset_win.destroy).grid(row=2, column=3, padx=5, pady=5, sticky="we")
+
+    refresh_list()
+
 root = tk.Tk()
 root.title("CSV Plotter")
 
-# ...existing code...
-
+preset_button = None
 # Root window layout
 tk.Label(root, text="Plot Title:").grid(row=0, column=0)
 title_entry = tk.Entry(root)
 title_entry.insert(0, "Output Noise Plot")
 title_entry.grid(row=0, column=1)
 
-# Removed global X/Y label fields - labels are chosen per-subplot via Subplot Settings
 
-legend_var = tk.BooleanVar(value=True)
-tk.Checkbutton(root, text="Show Legend", variable=legend_var, command=reload_plot).grid(row=1, column=1)
+# New Presets button (disabled initially; enabled by plot_manager)
+presets_button = tk.Button(root, text="Presets", command=open_presets_manager, state=tk.NORMAL, padx=width_pad_root)
+presets_button.grid(row=1, column=1)
 
 tk.Button(root, text="Plot Manager", command=plot_manager, padx=width_pad_root).grid(row=2, column=0)
 reload_button = tk.Button(root, text="Plot neu laden", command=reload_plot, state=tk.DISABLED, padx=width_pad_root)
