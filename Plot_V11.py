@@ -855,20 +855,25 @@ def save_plot():
             height = float(height_entry.get())
             selected_format = format_var.get().lower()
             
-            file_types = [
-                ('PDF file', '*.pdf'),
-                ('SVG file', '*.svg'),
-                ('EPS file', '*.eps')
-            ]
-            
+            # Einstellungen speichern
+            save_settings["format"] = selected_format
+            save_settings["width"] = width
+            save_settings["height"] = height            
+
+            file_types = {
+                "pdf": [('PDF file', '*.pdf')],
+                "svg": [('SVG file', '*.svg')],
+                "eps": [('EPS file', '*.eps')]
+            }
+
             file_path = filedialog.asksaveasfilename(
                 defaultextension=f".{selected_format}",
-                filetypes=file_types
+                filetypes=file_types.get(selected_format, [('All Files', '*.*')])
             )
             
             if file_path:
                 fig.set_size_inches(width, height)
-                fig.savefig(file_path, format=selected_format)
+                fig.savefig(file_path, format=selected_format.lower())
                 messagebox.showinfo("Success", f"Plot saved as {file_path}")
                 save_window.destroy()
         except ValueError:
@@ -880,7 +885,7 @@ def save_plot():
     
     # Format selection
     tk.Label(save_window, text="Format:").grid(row=0, column=0, padx=5, pady=5)
-    format_var = tk.StringVar(value="PDF")
+    format_var = tk.StringVar(value=save_settings["format"])
     format_menu = ttk.Combobox(save_window, textvariable=format_var, 
                               values=["PDF", "SVG", "EPS"], 
                               state="readonly")
@@ -889,13 +894,13 @@ def save_plot():
     # Width
     tk.Label(save_window, text="Width (inches):").grid(row=1, column=0, padx=5, pady=5)
     width_entry = tk.Entry(save_window)
-    width_entry.insert(0, "6")
+    width_entry.insert(0, save_settings["width"])
     width_entry.grid(row=1, column=1, padx=5, pady=5)
     
     # Height
     tk.Label(save_window, text="Height (inches):").grid(row=2, column=0, padx=5, pady=5)
     height_entry = tk.Entry(save_window)
-    height_entry.insert(0, "4")
+    height_entry.insert(0, save_settings["height"])
     height_entry.grid(row=2, column=1, padx=5, pady=5)
     
     # Save button
