@@ -104,6 +104,7 @@ def reload_plot():
 
     # Clear existing figure (reuse fig so canvas stays valid)
     fig.clf()
+    fig.suptitle(title_entry.get(), fontsize=16)
 
     # Get layout settings
     rows, cols = map(int, subplot_settings['layout'].split('x'))
@@ -1214,7 +1215,7 @@ def set_marker():
         subplot_num = int(subplot_select_var.get())
         axis = source_type_var.get()
         color = color_display.cget("bg")
-    
+
         try:
             if marker_type in ["xpoint", "ypoint"]:
                 if not plot_select_var.get() or plot_select_var.get() == "No plots in subplot":
@@ -1264,6 +1265,7 @@ def set_marker():
                 markers.append(new_marker)
 
             update_marker_list()
+            status_label.config(text="Kein Eintrag ausgewählt")
             reload_plot()
             
         except ValueError as e:
@@ -1288,7 +1290,12 @@ def set_marker():
     tk.Label(marker_window, text="Current Markers:").grid(row=6, column=0, columnspan=2, sticky="w")
     marker_list = tk.Listbox(marker_window, width=50, height=10)
     marker_list.grid(row=7, column=0, columnspan=3, sticky="nsew", padx=5, pady=5)
-    marker_list.bind("<<ListboxSelect>>", edit_selected_marker)
+    marker_list.bind("<Double-Button-1>", edit_selected_marker)
+
+    
+    # Initiales Laden der Marker-Liste
+    update_marker_list()
+
 
     # Buttons
     tk.Button(marker_window, text="Add Marker", command=add_marker).grid(row=8, column=0, pady=10)
@@ -1300,14 +1307,17 @@ def set_marker():
     
     def delete_selected_marker(listbox):
         selection = listbox.curselection()
-        if selection:
-            del markers[selection[0]]
-            update_marker_list()
-            reload_plot()
+        if not selection:
+            messagebox.showwarning("No selection", "Please select a marker to delete.")
+            return
+        index = selection[0]
+        del markers[index]
+        update_marker_list()
+        status_label.config(text="Kein Eintrag ausgewählt")
+        reload_plot()
 
     # Initialize UI
     update_fields()
-    update_marker_list()
 
 def open_zoom_settings():
     global zoom_regions
@@ -1597,12 +1607,12 @@ def open_axis_settings():
     # Achsentyp Auswahl
     ttk.Label(axis_window, text="X-Achse:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
     x_axis_type = ttk.Combobox(axis_window, values=["linear", "log"], state="readonly")
-    x_axis_type.set(axis_settings.get('x_axis_type'))
+    x_axis_type.set(axis_settings['subplots'][1].get('x_axis_type', 'linear'))
     x_axis_type.grid(row=1, column=1, padx=5, pady=5)
 
     ttk.Label(axis_window, text="Y-Achse:").grid(row=1, column=2, padx=5, pady=5, sticky="e")
     y_axis_type = ttk.Combobox(axis_window, values=["linear", "log"], state="readonly")
-    y_axis_type.set(axis_settings.get('y_axis_type'))
+    x_axis_type.set(axis_settings['subplots'][1].get('y_axis_type', 'linear'))
     y_axis_type.grid(row=1, column=3, padx=5, pady=5)
 
     # Skalierung
