@@ -1,0 +1,135 @@
+{
+  "subplot_settings": {
+    "layout": "2x1",
+    "current": 1,
+    "subplots": {
+      "1": {
+        "title": "",
+        "xlabel": "",
+        "ylabel": "Phase (°)",
+        "ylabel_secondary": "",
+        "grid": true,
+        "grid_color": "gray",
+        "grid_linewidth": 0.5,
+        "ticks_left": true,
+        "ticks_bottom": false,
+        "ticks_right": true,
+        "legend": true,
+        "position": 211
+      },
+      "2": {
+        "title": "",
+        "xlabel": "Frequenz (Hz)",
+        "ylabel": "Gain (dB)",
+        "ylabel_secondary": "",
+        "grid": true,
+        "grid_color": "gray",
+        "grid_linewidth": 0.5,
+        "ticks_left": true,
+        "ticks_bottom": true,
+        "ticks_right": true,
+        "legend": true,
+        "position": 212
+      }
+    }
+  },
+  "grid_settings": {
+    "use_subplot1_for_all": false,
+    "visible": true,
+    "color": "gray",
+    "linewidth": 0.5,
+    "ticks_left": true,
+    "ticks_bottom": true,
+    "ticks_right": true
+  },
+  "legend_settings": {
+    "fontsize": "10",
+    "loc": "upper right",
+    "frameon": true,
+    "alpha": 1.0,
+    "ncol": "1",
+    "visible": true,
+    "all_in_subplot1": true,
+    "show_markers": false
+  },
+  "zoom_regions": [],
+  "markers": [
+    {
+      "type": "vertical",
+      "x": 159.369353,
+      "y": null,
+      "color": "#000000",
+      "y-axis": "primary",
+      "subplot": 2,
+      "source_plot": null
+    },
+    {
+      "type": "vertical",
+      "x": 159.369353,
+      "y": null,
+      "color": "#000000",
+      "y-axis": "primary",
+      "subplot": 1,
+      "source_plot": null
+    },
+    {
+      "type": "horizontal",
+      "x": null,
+      "y": -3.0,
+      "color": "#000000",
+      "y-axis": "primary",
+      "subplot": 2,
+      "source_plot": null
+    },
+    {
+      "type": "horizontal",
+      "x": null,
+      "y": -45.0,
+      "color": "#000000",
+      "y-axis": "primary",
+      "subplot": 1,
+      "source_plot": null
+    }
+  ],
+  "axis_settings": {
+    "x_axis_type": "linear",
+    "y_axis_type": "linear",
+    "x_min": "",
+    "x_max": "",
+    "y_min": "",
+    "y_max": "",
+    "invert_x": false,
+    "invert_y": false,
+    "auto_ticks": true,
+    "subplots": {
+      "1": {
+        "x_axis_type": "log",
+        "y_axis_type": "linear",
+        "x_min": "",
+        "x_max": "",
+        "y_min": "",
+        "y_max": "",
+        "invert_x": false,
+        "invert_y": false,
+        "auto_ticks": true
+      },
+      "2": {
+        "x_axis_type": "log",
+        "y_axis_type": "linear",
+        "x_min": "",
+        "x_max": "",
+        "y_min": "",
+        "y_max": "",
+        "invert_x": false,
+        "invert_y": false,
+        "auto_ticks": true
+      }
+    }
+  },
+  "plot_title": "RC Tiefpass",
+  "save_settings": {
+    "format": "SVG",
+    "width": 10,
+    "height": 4
+  }
+}

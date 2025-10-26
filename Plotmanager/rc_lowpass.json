@@ -1,0 +1,16 @@
+[
+  {
+    "file_path": "C:/Users/chris/Downloads/rc_lowpass_phase.csv",
+    "label": "rc_lowpass_phase",
+    "color": "#ff0000",
+    "y_axis": "primary",
+    "subplot": 1
+  },
+  {
+    "file_path": "C:/Users/chris/Downloads/rc_lowpass_gain.csv",
+    "label": "rc_lowpass_gain",
+    "color": "#0000a0",
+    "y_axis": "primary",
+    "subplot": 2
+  }
+]

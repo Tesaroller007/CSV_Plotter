@@ -1,15 +1,15 @@
 [
   {
     "file_path": "E:/Dokumente/Python_Workspace/Messungen/Sinus.csv",
-    "label": "sd",
-    "color": "#a0a0a0",
-    "y_axis": "secondary",
+    "label": "Phase",
+    "color": "#ff0000",
+    "y_axis": "primary",
     "subplot": 1
   },
   {
     "file_path": "E:/Dokumente/Python_Workspace/Messungen/Sinus.csv",
-    "label": "dssd",
-    "color": "#8000ff",
+    "label": "Gain",
+    "color": "#0000ff",
     "y_axis": "primary",
     "subplot": 2
   }
