@@ -39,12 +39,16 @@ axis_settings = {
         1: {
             "x_axis_type": "linear",
             "y_axis_type": "linear",
+            "y2_axis_type": "linear",
             "x_min": "",
             "x_max": "",
             "y_min": "",
             "y_max": "",
+            "y2_min": "",
+            "y2_max": "",
             "invert_x": False,
             "invert_y": False,
+            "invert_y2": False,
             "auto_ticks": True
         }
     },
@@ -101,6 +105,7 @@ def reload_plot():
     print(f"Axis_settings: {axis_settings}\n")
     print(f"Legend_settings: {legend_settings}\n")
     print(f"Zoom_regions: {zoom_regions}\n")
+    print(f"Entries: {entries}\n")
 
     # Clear existing figure (reuse fig so canvas stays valid)
     fig.clf()
@@ -229,6 +234,15 @@ def reload_plot():
             subplot_axis_settings = axis_settings.get('subplots', {}).get(subplot_num, {})
             ax.set_xscale(subplot_axis_settings.get("x_axis_type", "linear"))
             ax.set_yscale(subplot_axis_settings.get("y_axis_type", "linear"))
+            
+            if subplot_axis_settings.get("auto_ticks", True):
+                # Automatische Ticks: Major + Minor anzeigen
+                ax.minorticks_on()
+                ax.grid(True, which='minor')
+            else:
+                # Nur Hauptlinien anzeigen
+                ax.minorticks_off()
+
             try:
                 x_min = subplot_axis_settings.get("x_min", "")
                 x_max = subplot_axis_settings.get("x_max", "")
@@ -244,6 +258,23 @@ def reload_plot():
                     ax.invert_yaxis()
             except ValueError:
                 print(f"Ungültige Werte für Achsenskalierung in Subplot {subplot_num}")
+            
+            # Sekundäre Achse (falls vorhanden)
+            sec_ax = secondary_axes.get(subplot_num)
+            if sec_ax is not None:
+                sec_ax.set_yscale(subplot_axis_settings.get("y2_axis_type", "linear"))
+                try:
+                    y2_min = subplot_axis_settings.get("y2_min", "")
+                    y2_max = subplot_axis_settings.get("y2_max", "")
+                    invert_y2 = subplot_axis_settings.get("invert_y2", False)
+
+                    if y2_min and y2_max:
+                        sec_ax.set_ylim(float(y2_min), float(y2_max))
+                    if invert_y2:
+                        sec_ax.invert_yaxis()
+                except ValueError:
+                    print(f"Ungültige Werte für sekundäre Achse in Subplot {subplot_num}")
+
 
     # Plot data in appropriate subplots (each entry has 'subplot' and 'y_axis')
     for entry in entries:
@@ -619,7 +650,7 @@ def plot_manager():
     
     def ask_y_axis_and_subplot(parent, default_y_axis="primary", default_subplot=1):
         dialog = tk.Toplevel(parent)
-        dialog.title("Plot-Einstellungen")
+        dialog.title("Plot-Settings")
         dialog.geometry("300x200")
         dialog.grab_set()  # Modal
         dialog.transient(parent) # Abhängigkeit zum Parent-Fenster
@@ -627,11 +658,20 @@ def plot_manager():
         selected_y_axis = tk.StringVar(value=default_y_axis)
         selected_subplot = tk.IntVar(value=default_subplot)
 
-        tk.Label(dialog, text="Y-Achse wählen:").pack(pady=5)
+        tk.Label(dialog, text="Choose Y-Axis:").pack(pady=5)
         tk.OptionMenu(dialog, selected_y_axis, "primary", "secondary").pack()
 
-        tk.Label(dialog, text="Subplot wählen (1-4):").pack(pady=5)
-        tk.OptionMenu(dialog, selected_subplot, 1, 2, 3, 4).pack()
+        
+        # Layout auslesen und Anzahl der Subplots berechnen
+        layout = subplot_settings.get('layout', '1x1')
+        rows, cols = map(int, layout.split('x'))
+        num_subplots = rows * cols
+
+        # Standardwerte: 1 bis 4, dynamisch erweitern falls nötig
+        subplot_choices = list(range(1, max(4, num_subplots) + 1))
+
+        tk.Label(dialog, text=f"Select Subplot (1-{len(subplot_choices)}):").pack(pady=5)
+        tk.OptionMenu(dialog, selected_subplot, *subplot_choices).pack()
 
         result = {"y_axis": default_y_axis, "subplot": default_subplot, "cancelled": True}
 
@@ -645,7 +685,7 @@ def plot_manager():
             dialog.destroy()
 
         tk.Button(dialog, text="OK", command=confirm).pack(side=tk.LEFT, padx=10, pady=10)
-        tk.Button(dialog, text="Abbrechen", command=cancel).pack(side=tk.RIGHT, padx=10, pady=10)
+        tk.Button(dialog, text="Cancle", command=cancel).pack(side=tk.RIGHT, padx=10, pady=10)
         dialog.wait_window()
 
         return result
@@ -653,7 +693,7 @@ def plot_manager():
 
     def edit_plot_window(parent_window, initial_data):
         edit_window = tk.Toplevel(parent_window)
-        edit_window.title(f"Plot bearbeiten: {initial_data['label']}")
+        edit_window.title(f"Edit Plot: {initial_data['label']}")
         edit_window.geometry("400x350")
         edit_window.grab_set()  # Modal
         edit_window.transient(parent_window) # Abhängigkeit zum Parent-Fenster
@@ -677,27 +717,33 @@ def plot_manager():
         row_idx += 1
 
         # Farbe
-        tk.Label(edit_window, text="Plot Farbe:").grid(row=row_idx, column=0, padx=5, pady=5, sticky="w")
+        tk.Label(edit_window, text="Plot Color:").grid(row=row_idx, column=0, padx=5, pady=5, sticky="w")
         color_display = tk.Label(edit_window, bg=color_var.get(), relief="sunken", width=10)
         color_display.grid(row=row_idx, column=1, padx=5, pady=5, sticky="w")
 
         def pick_color():
-            color_code = colorchooser.askcolor(title="Farbe auswählen")[1]
+            color_code = colorchooser.askcolor(title="Select Color")[1]
             if color_code:
                 color_var.set(color_code)
                 color_display.config(bg=color_code)
 
-        tk.Button(edit_window, text="Farbe wählen", command=pick_color).grid(row=row_idx, column=2, padx=5, pady=5)
+        tk.Button(edit_window, text="Select Color", command=pick_color).grid(row=row_idx, column=2, padx=5, pady=5)
         row_idx += 1
 
         # Y-Achse
-        tk.Label(edit_window, text="Y-Achse:").grid(row=row_idx, column=0, padx=5, pady=5, sticky="w")
+        tk.Label(edit_window, text="Y-Axis:").grid(row=row_idx, column=0, padx=5, pady=5, sticky="w")
         tk.OptionMenu(edit_window, y_axis_var, "primary", "secondary").grid(row=row_idx, column=1, padx=5, pady=5, sticky="ew")
         row_idx += 1
 
+        # Calculate Suplot choices based on current layout
+        layout = subplot_settings.get('layout', '1x1')
+        rows, cols = map(int, layout.split('x'))
+        num_subplots = rows * cols
+        subplot_choices = list(range(1, max(4, num_subplots) + 1))
+
         # Subplot
-        tk.Label(edit_window, text="Subplot (1-4):").grid(row=row_idx, column=0, padx=5, pady=5, sticky="w")
-        tk.OptionMenu(edit_window, subplot_var, 1, 2, 3, 4).grid(row=row_idx, column=1, padx=5, pady=5, sticky="ew")
+        tk.Label(edit_window, text="Subplot:").grid(row=row_idx, column=0, padx=5, pady=5, sticky="w")
+        tk.OptionMenu(edit_window, subplot_var, *subplot_choices).grid(row=row_idx, column=1, padx=5, pady=5, sticky="ew")
         row_idx += 1
 
         # Sonstige Features (Beispiel: Checkbox für 'Is Dotted')
@@ -721,8 +767,8 @@ def plot_manager():
             edit_window.destroy()
 
         # Buttons
-        tk.Button(edit_window, text="Änderungen speichern", command=save_changes).grid(row=row_idx, column=0, columnspan=2, padx=5, pady=10)
-        tk.Button(edit_window, text="Abbrechen", command=cancel_edit).grid(row=row_idx, column=2, padx=5, pady=10)
+        tk.Button(edit_window, text="Save changes!", command=save_changes).grid(row=row_idx, column=0, columnspan=2, padx=5, pady=10)
+        tk.Button(edit_window, text="Cancle", command=cancel_edit).grid(row=row_idx, column=2, padx=5, pady=10)
 
         edit_window.grid_columnconfigure(1, weight=1) # Erlaubt der Label-Entry-Box, sich auszudehnen
 
@@ -760,11 +806,11 @@ def plot_manager():
         if not file_path:
             return
 
-        label = simpledialog.askstring("Label", "Gib ein Label für den Plot ein:", parent=manager_window)
+        label = simpledialog.askstring("Label", "Enter a label for the plot:", parent=manager_window)
         if not label:
             return
 
-        color = colorchooser.askcolor(title="Wähle eine Farbe", parent=manager_window)[1]
+        color = colorchooser.askcolor(title="choose a color", parent=manager_window)[1]
         if not color:
             return "#000000" # Standardfarbe, falls abgebrochen
 
@@ -839,12 +885,12 @@ def plot_manager():
                 messagebox.showerror("Fehler", f"Fehler beim Laden der Datei:\n{e}", parent=manager_window)
 
     # Buttons
-    tk.Button(manager_window, text="CSV-Datei hinzufügen", command=add_entry).grid(row=1, column=0, padx=5, pady=5)
-    tk.Button(manager_window, text="Eintrag bearbeiten", command=edit_entry).grid(row=1, column=1, padx=5, pady=5)
-    tk.Button(manager_window, text="Eintrag löschen", command=delete_entry).grid(row=1, column=2, padx=5, pady=5)
-    tk.Button(manager_window, text="Konfig speichern", command=save_config).grid(row=2, column=0, padx=5, pady=5)
-    tk.Button(manager_window, text="Konfig laden", command=load_config).grid(row=2, column=1, padx=5, pady=5)
-    tk.Button(manager_window, text="Schließen", command=manager_window.destroy).grid(row=2, column=2, padx=5, pady=5)
+    tk.Button(manager_window, text="Add CSV-File", command=add_entry).grid(row=1, column=0, padx=5, pady=5)
+    tk.Button(manager_window, text="Edit Entry", command=edit_entry).grid(row=1, column=1, padx=5, pady=5)
+    tk.Button(manager_window, text="Delete Entry", command=delete_entry).grid(row=1, column=2, padx=5, pady=5)
+    tk.Button(manager_window, text="Save Config", command=save_config).grid(row=2, column=0, padx=5, pady=5)
+    tk.Button(manager_window, text="Load Config", command=load_config).grid(row=2, column=1, padx=5, pady=5)
+    tk.Button(manager_window, text="Close", command=manager_window.destroy).grid(row=2, column=2, padx=5, pady=5)
 
     update_listbox()
 
@@ -1543,10 +1589,10 @@ def open_legend_settings():
         reload_plot()
 
     legend_window = tk.Toplevel(root)
-    legend_window.title("Legenden-Einstellungen")
+    legend_window.title("Legend-Settings")
 
     # Schriftgröße
-    tk.Label(legend_window, text="Schriftgröße:").grid(row=0, column=0, sticky="w")
+    tk.Label(legend_window, text="Font Size:").grid(row=0, column=0, sticky="w")
     fontsize_entry = tk.Entry(legend_window)
     fontsize_entry.insert(0, legend_settings.get('fontsize'))
     fontsize_entry.grid(row=0, column=1)
@@ -1560,44 +1606,44 @@ def open_legend_settings():
     loc_menu.grid(row=1, column=1)
 
     # Rahmen
-    tk.Label(legend_window, text="Rahmen anzeigen:").grid(row=2, column=0, sticky="w")
+    tk.Label(legend_window, text="Show Frame:").grid(row=2, column=0, sticky="w")
     frame_var = tk.BooleanVar(value=legend_settings.get('frameon'))
     tk.Checkbutton(legend_window, variable=frame_var).grid(row=2, column=1)
 
     # Transparenz
-    tk.Label(legend_window, text="Transparenz (0-1):").grid(row=3, column=0, sticky="w")
+    tk.Label(legend_window, text="Transparency (0-1):").grid(row=3, column=0, sticky="w")
     alpha_scale = tk.Scale(legend_window, from_=0.0, to=1.0, resolution=0.1, orient="horizontal")
     alpha_scale.set(legend_settings.get('alpha'))
     alpha_scale.grid(row=3, column=1)
 
     # Spaltenanzahl
-    tk.Label(legend_window, text="Spaltenanzahl:").grid(row=4, column=0, sticky="w")
+    tk.Label(legend_window, text="Columns:").grid(row=4, column=0, sticky="w")
     ncol_entry = tk.Entry(legend_window)
     ncol_entry.insert(0, legend_settings.get('ncol'))
     ncol_entry.grid(row=4, column=1)
 
     # Sichtbarkeit
-    tk.Label(legend_window, text="Legende anzeigen:").grid(row=5, column=0, sticky="w")
+    tk.Label(legend_window, text="Show Legend:").grid(row=5, column=0, sticky="w")
     visible_var = tk.BooleanVar(value=legend_settings.get('visible'))
     tk.Checkbutton(legend_window, variable=visible_var).grid(row=5, column=1)
 
     # Neue Option: Alle Legenden in Subplot 1
     all_in_subplot1_var = tk.BooleanVar(value=legend_settings.get('all_in_subplot1', False))
-    tk.Checkbutton(legend_window, text="Alle Legenden in Subplot 1", 
+    tk.Checkbutton(legend_window, text="All in subplot 1", 
                    variable=all_in_subplot1_var).grid(row=6, column=0, columnspan=2, sticky="w")
 
     # Neue Option: Marker in Legende anzeigen
     show_markers_var = tk.BooleanVar(value=legend_settings.get('show_markers', True))
-    tk.Checkbutton(legend_window, text="Marker in Legende anzeigen", 
+    tk.Checkbutton(legend_window, text="Show marker in legend", 
                    variable=show_markers_var).grid(row=7, column=0, columnspan=2, sticky="w")
 
     # Button
-    tk.Button(legend_window, text="Übernehmen", 
+    tk.Button(legend_window, text="Apply", 
               command=apply_legend_settings).grid(row=8, column=0, columnspan=2, pady=10)
 
 def open_axis_settings():
     axis_window = tk.Toplevel(root)
-    axis_window.title("Achsen-Einstellungen")
+    axis_window.title("Axis-Settings")
 
     # Get available subplots from current layout
     rows, cols = map(int, subplot_settings['layout'].split('x'))
@@ -1610,12 +1656,12 @@ def open_axis_settings():
     subplot_var.grid(row=0, column=1, padx=5, pady=5)
 
     # Achsentyp Auswahl
-    ttk.Label(axis_window, text="X-Achse:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
+    ttk.Label(axis_window, text="X-Axis:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
     x_axis_type = ttk.Combobox(axis_window, values=["linear", "log"], state="readonly")
     x_axis_type.set(axis_settings['subplots'][1].get('x_axis_type', 'linear'))
     x_axis_type.grid(row=1, column=1, padx=5, pady=5)
 
-    ttk.Label(axis_window, text="Y-Achse:").grid(row=1, column=2, padx=5, pady=5, sticky="e")
+    ttk.Label(axis_window, text="Y-Axis:").grid(row=1, column=2, padx=5, pady=5, sticky="e")
     y_axis_type = ttk.Combobox(axis_window, values=["linear", "log"], state="readonly")
     x_axis_type.set(axis_settings['subplots'][1].get('y_axis_type', 'linear'))
     y_axis_type.grid(row=1, column=3, padx=5, pady=5)
@@ -1637,15 +1683,29 @@ def open_axis_settings():
     y_max_entry = ttk.Entry(axis_window)
     y_max_entry.grid(row=3, column=3, padx=5, pady=5)
 
+
     # Invertieren
     invert_x = tk.BooleanVar()
     invert_y = tk.BooleanVar()
-    ttk.Checkbutton(axis_window, text="X-Achse invertieren", variable=invert_x).grid(row=4, column=0, columnspan=2, padx=5)
-    ttk.Checkbutton(axis_window, text="Y-Achse invertieren", variable=invert_y).grid(row=4, column=2, columnspan=2, padx=5)
+    
+    # Sekundäre Y-Achse Felder (werden dynamisch ergänzt)
+    y2_axis_type_label = ttk.Label(axis_window, text="Y2-Axis:")
+    y2_axis_type = ttk.Combobox(axis_window, values=["linear", "log"], state="readonly")
+    y2_axis_type.set("linear")  # Standardwert setzen
+
+    y2_min_label = ttk.Label(axis_window, text="Y2-Min:")
+    y2_min_entry = ttk.Entry(axis_window)
+    y2_max_label = ttk.Label(axis_window, text="Y2-Min:")
+    y2_max_entry = ttk.Entry(axis_window)
+    invert_y2_check = ttk.Checkbutton(axis_window, text="invert Y2-Axis")
+    invert_y2 = tk.BooleanVar()
+
+    ttk.Checkbutton(axis_window, text="invert X-Axis", variable=invert_x).grid(row=4, column=0, columnspan=2, padx=5)
+    ttk.Checkbutton(axis_window, text="invert Y-Axis", variable=invert_y).grid(row=4, column=2, columnspan=2, padx=5)
 
     # Ticks automatisch
     auto_ticks = tk.BooleanVar(value=True)
-    ttk.Checkbutton(axis_window, text="Ticks automatisch setzen", variable=auto_ticks).grid(row=5, column=0, columnspan=4, padx=5)
+    ttk.Checkbutton(axis_window, text="set ticks automatic", variable=auto_ticks).grid(row=5, column=0, columnspan=4, padx=5)
 
     def apply_settings():
         subplot_num = int(subplot_var.get())
@@ -1658,22 +1718,35 @@ def open_axis_settings():
         axis_settings['subplots'][subplot_num] = {
             "x_axis_type": x_axis_type.get(),
             "y_axis_type": y_axis_type.get(),
+            "y2_axis_type": y2_axis_type.get(),
             "x_min": x_min_entry.get(),
             "x_max": x_max_entry.get(),
             "y_min": y_min_entry.get(),
             "y_max": y_max_entry.get(),
+            "y2_min": y2_min_entry.get(),
+            "y2_max": y2_max_entry.get(),
             "invert_x": invert_x.get(),
             "invert_y": invert_y.get(),
+            "invert_y2": invert_y2.get(),
             "auto_ticks": auto_ticks.get()
         }
         
         reload_plot()
 
     def update_fields(*args):
+        print(f"Updating fields for subplot")
         # Load settings for selected subplot
         subplot_num = int(subplot_var.get())
         subplot_settings = axis_settings.get('subplots', {}).get(subplot_num, {})
+
+        has_secondary_y_axis = False
+        for e in entries:
+            if int(e.get('subplot')) == int(subplot_num):
+                if e.get('y_axis') == 'secondary':
+                    has_secondary_y_axis = True
         
+        print(f"Has secondary Y axis: {has_secondary_y_axis}")
+
         x_axis_type.set(subplot_settings.get('x_axis_type', 'linear'))
         y_axis_type.set(subplot_settings.get('y_axis_type', 'linear'))
         x_min_entry.delete(0, tk.END)
@@ -1688,13 +1761,49 @@ def open_axis_settings():
         invert_y.set(subplot_settings.get('invert_y', False))
         auto_ticks.set(subplot_settings.get('auto_ticks', True))
 
+        
+        # Sekundäre Y-Achse anzeigen, wenn vorhanden
+        if has_secondary_y_axis:
+            print(f"ytype {subplot_settings.get('y2_axis_type')}")
+            y2_axis_type_label.config(text="Y2-Axis:")
+            y2_axis_type_label.grid(row=1, column=4, padx=5, pady=5, sticky="e")
+            y2_axis_type.grid(row=1, column=5, padx=5, pady=5)
+            y2_axis_type.delete(0, tk.END)
+            y2_axis_type.insert(0, subplot_settings.get('y2_axis_type', 'linear'))
+
+            y2_min_label.config(text="Y2-Min:")
+            y2_min_label.grid(row=2, column=4, padx=5, pady=5, sticky="e")
+            y2_min_entry.grid(row=2, column=5, padx=5, pady=5)
+            y2_min_entry.delete(0, tk.END)
+            y2_min_entry.insert(0, subplot_settings.get('y2_min', ''))
+
+            y2_max_label.config(text="Y2-Max:")
+            y2_max_label.grid(row=3, column=4, padx=5, pady=5, sticky="e")
+            y2_max_entry.grid(row=3, column=5, padx=5, pady=5)
+            y2_max_entry.delete(0, tk.END)
+            y2_max_entry.insert(0, subplot_settings.get('y2_max', ''))
+
+            invert_y2_check.config(text="invert Y2-Axis", variable=invert_y2)
+            invert_y2_check.grid(row=4, column=4, columnspan=2, padx=5)
+            invert_y2.set(subplot_settings.get('invert_y2', False))
+        else:
+            y2_axis_type_label.grid_remove()
+            y2_axis_type.grid_remove()
+            y2_min_label.grid_remove()
+            y2_min_entry.grid_remove()
+            y2_max_label.grid_remove()
+            y2_max_entry.grid_remove()
+            invert_y2_check.grid_remove()
+
+
+
     # Bind the update function to subplot selection
     subplot_var.bind('<<ComboboxSelected>>', update_fields)
     
     # Initial update of fields
     update_fields()
 
-    ttk.Button(axis_window, text="Übernehmen", command=apply_settings).grid(row=6, column=0, columnspan=4, pady=10)
+    ttk.Button(axis_window, text="Apply", command=apply_settings).grid(row=6, column=0, columnspan=4, pady=10)
 
 
 def open_presets_manager():
@@ -1902,7 +2011,7 @@ presets_button = tk.Button(root, text="Presets", command=open_presets_manager, s
 presets_button.grid(row=1, column=1)
 
 tk.Button(root, text="Plot Manager", command=plot_manager, padx=width_pad_root).grid(row=2, column=0)
-reload_button = tk.Button(root, text="Plot neu laden", command=reload_plot, state=tk.DISABLED, padx=width_pad_root)
+reload_button = tk.Button(root, text="Reload Plot", command=reload_plot, state=tk.DISABLED, padx=width_pad_root)
 reload_button.grid(row=2, column=1)
 
 save_button = tk.Button(root, text="Save Plot", command=save_plot, state=tk.DISABLED, padx=width_pad_root)

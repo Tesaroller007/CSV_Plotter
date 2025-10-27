@@ -1,27 +1,30 @@
 #TODO
 
 #--------------------------------------------------------------------------------------
-## open
+## open (top - most important, bottom - least important)
 #--------------------------------------------------------------------------------------
-- add secondary y-axis in axis-manager
-- change language to english (maybe also german version)
-- fit window size dynamically to display resolution (necessary?)
-- error handling for wrong plot-label (LaTeX error -> plotter is stuck)
-- set all Button in root window to same size
-- marker in zoom insert (checkbox in zoom-settings)
-- fast select in plotmanager -> 3 Plots on subplot 1 but only one is plotted -> fast switching between plots 
-- add help-feature 
-- save plot -> x-Label not completly visible
-- generated svg has different sizes even with the same settings (only different plot)
-- add feature to remove ticks on x-axis completly 
-- grid on log-scale wrong (no small ticks)
-- vertical distance between plots sometimes to small 
-- pre-defined color pallets 
-- distance between title and first plot sometimes to large
-- change scale in insert (linear/log)
-- remove 4 subplot limit in Plotmanager (append dynamically)
 
+- save plot -> x-Label not completly visible
+- vertical distance between plots sometimes to small 
+- distance between title and first plot sometimes to large
+- generated svg has different sizes even with the same settings (only different plot)
+- change language to english (only GUI) 
+- fast select in plotmanager -> 3 Plots on subplot 1 but only one is plotted -> fast switching between plots 
+- marker in zoom insert (checkbox in zoom-settings)
+- change color and size of minor-grid
+- pre-defined color pallets 
+- fit window size dynamically to display resolution (necessary?)
+- change scale in insert (linear/log)
+- set all buttons in root window to same size
+- add help-feature 
+- error handling for wrong plot-label (LaTeX error -> plotter is stuck)
+- language of all comments/messages in english
 
 #--------------------------------------------------------------------------------------
 ## done
 #--------------------------------------------------------------------------------------
+
++ add secondary y-axis in axis-manager                          - 27.10.2025
++ grid on log-scale wrong (no small ticks)                      - 27.10.2025
++ add feature to remove ticks on x-axis completly               - 27.10.2025
++ remove 4 subplot limit in Plotmanager (append dynamically)    - 27.10.2025
