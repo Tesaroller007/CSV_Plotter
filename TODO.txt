@@ -8,6 +8,7 @@
 - vertical distance between plots sometimes to small 
 - distance between title and first plot sometimes to large
 - generated svg has different sizes even with the same settings (only different plot)
+- add feature: minor_ticks on/off if ticks in Grid-settings disabled
 - change language to english (only GUI) 
 - fast select in plotmanager -> 3 Plots on subplot 1 but only one is plotted -> fast switching between plots 
 - marker in zoom insert (checkbox in zoom-settings)

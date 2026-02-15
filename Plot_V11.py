@@ -1,13 +1,14 @@
 import tkinter as tk
 from tkinter import filedialog, colorchooser, ttk
 import pandas as pd
-#import matplotlib as mpl
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 from tkinter import messagebox, simpledialog
 import json
 import os
+from matplotlib.ticker import LogLocator
 
 
 # Global variables
@@ -81,6 +82,32 @@ save_settings = {
 PRESETS_DIR = os.path.join(os.path.dirname(__file__), "presets")
 os.makedirs(PRESETS_DIR, exist_ok=True)
 
+SI_PREFIX_FACTORS = {
+    'a': 1e18,
+    'f': 1e15,
+    'p': 1e12,
+    'n': 1e9,
+    'u': 1e6,
+    'µ': 1e6,
+    'm': 1e3,
+    'k': 1e-3,
+    'K': 1e-3,
+    'M': 1e-6,
+    'G': 1e-9,
+    'T': 1e-12,
+}
+
+def _unit_factor(unit_label: str) -> float:
+    if not unit_label:
+        return 1.0
+
+    s = str(unit_label).strip()
+    if len(s) < 2:
+        return 1.0
+
+    prefix = s[0]
+    return SI_PREFIX_FACTORS.get(prefix, 1.0)
+
 
 #mpl.rcParams.update({
 #    "text.usetex": True,
@@ -93,6 +120,37 @@ os.makedirs(PRESETS_DIR, exist_ok=True)
 #    "ytick.labelsize": 10
 #})
 
+def get_corner_int(corner_name):
+    if corner_name == 'top right':
+        return 1
+    elif corner_name == 'top left':
+        return 2
+    elif corner_name == 'bottom left':
+        return 3
+    elif corner_name == 'bottom right': # Ergänzt, falls bottom_right auch verwendet wird
+        return 4
+    return None
+
+
+def _best_fg(hex_color: str) -> str:
+    """Return 'black' or 'white' for good contrast on given #RRGGBB."""
+    hc = hex_color.lstrip('#')
+    r, g, b = int(hc[0:2], 16), int(hc[2:4], 16), int(hc[4:6], 16)
+    # relative luminance (sRGB -> Y, simple)
+    lum = 0.2126*r + 0.7152*g + 0.0722*b
+    return "black" if lum > 140 else "white"
+
+
+PRESET_COLORS = [
+    ("Orange",    "#E69F00"),
+    ("Sky Blue",  "#56B4E9"),
+    ("Teal",      "#009E73"),
+    ("Yellow",    "#F0E442"),
+    ("Blue",      "#0072B2"),
+    ("Vermilion", "#D55E00"),
+    ("Pink",      "#CC79A7"),
+    ("Black",     "#000000"),
+]
 
 
 def reload_plot():
@@ -234,8 +292,26 @@ def reload_plot():
             subplot_axis_settings = axis_settings.get('subplots', {}).get(subplot_num, {})
             ax.set_xscale(subplot_axis_settings.get("x_axis_type", "linear"))
             ax.set_yscale(subplot_axis_settings.get("y_axis_type", "linear"))
+            # Read scale factors and unit labels (defaults)
+            x_scale = float(subplot_axis_settings.get('x_scale_factor', _unit_factor(subplot_axis_settings.get('x_unit', ''))))
+            y_scale = float(subplot_axis_settings.get('y_scale_factor', _unit_factor(subplot_axis_settings.get('y_unit', ''))))
+            y2_scale = float(subplot_axis_settings.get('y2_scale_factor', _unit_factor(subplot_axis_settings.get('y2_unit', ''))))
+            # Update axis labels to include units
+            subcfg = subplot_settings['subplots'].get(subplot_num, {})
+            x_unit_lbl = subplot_axis_settings.get('x_unit', '')
+            y_unit_lbl = subplot_axis_settings.get('y_unit', '')
+            y2_unit_lbl = subplot_axis_settings.get('y2_unit', '')
+            try:
+                ax.set_xlabel(f"{subcfg.get('xlabel','')}{f' [{x_unit_lbl}]' if x_unit_lbl else ''}")
+            except Exception:
+                pass
+            try:
+                ax.set_ylabel(f"{subcfg.get('ylabel','')}{f' [{y_unit_lbl}]' if y_unit_lbl else ''}")
+            except Exception:
+                pass
             
             if subplot_axis_settings.get("auto_ticks", True):
+                print(f"set minor ticks")
                 # Automatische Ticks: Major + Minor anzeigen
                 ax.minorticks_on()
                 ax.grid(True, which='minor')
@@ -249,9 +325,9 @@ def reload_plot():
                 y_min = subplot_axis_settings.get("y_min", "")
                 y_max = subplot_axis_settings.get("y_max", "")
                 if x_min and x_max:
-                    ax.set_xlim(float(x_min), float(x_max))
+                    ax.set_xlim(float(x_min) * x_scale, float(x_max) * x_scale)
                 if y_min and y_max:
-                    ax.set_ylim(float(y_min), float(y_max))
+                    ax.set_ylim(float(y_min) * y_scale, float(y_max) * y_scale)
                 if subplot_axis_settings.get("invert_x", False):
                     ax.invert_xaxis()
                 if subplot_axis_settings.get("invert_y", False):
@@ -263,13 +339,19 @@ def reload_plot():
             sec_ax = secondary_axes.get(subplot_num)
             if sec_ax is not None:
                 sec_ax.set_yscale(subplot_axis_settings.get("y2_axis_type", "linear"))
+                # Set secondary ylabel with unit
+                try:
+                    sec_label = subplot_settings['subplots'].get(subplot_num, {}).get('ylabel_secondary', '')
+                    sec_ax.set_ylabel(f"{sec_label}{f' [{y2_unit_lbl}]' if y2_unit_lbl else ''}")
+                except Exception:
+                    pass
                 try:
                     y2_min = subplot_axis_settings.get("y2_min", "")
                     y2_max = subplot_axis_settings.get("y2_max", "")
                     invert_y2 = subplot_axis_settings.get("invert_y2", False)
 
                     if y2_min and y2_max:
-                        sec_ax.set_ylim(float(y2_min), float(y2_max))
+                        sec_ax.set_ylim(float(y2_min) * y2_scale, float(y2_max) * y2_scale)
                     if invert_y2:
                         sec_ax.invert_yaxis()
                 except ValueError:
@@ -304,7 +386,14 @@ def reload_plot():
             df = pd.read_csv(entry['file_path'])
             x = df.iloc[:, 0]
             y = df.iloc[:, 1]
-            plot_ax.plot(x, y, color=entry.get('color', '#000000'), label=entry.get('label', ''))
+            # Apply axis scaling
+            subplot_axis_settings = axis_settings.get('subplots', {}).get(subplot_num, {})
+            x_scale = float(subplot_axis_settings.get('x_scale_factor', _unit_factor(subplot_axis_settings.get('x_unit', ''))))
+            if y_axis_choice == 'secondary':
+                y_scale = float(subplot_axis_settings.get('y2_scale_factor', _unit_factor(subplot_axis_settings.get('y2_unit', ''))))
+            else:
+                y_scale = float(subplot_axis_settings.get('y_scale_factor', _unit_factor(subplot_axis_settings.get('y_unit', ''))))
+            plot_ax.plot(x * x_scale, y * y_scale, color=entry.get('color', '#000000'), label=entry.get('label', ''))
         except Exception as e:
             print(f"Error plotting {entry.get('file_path')}: {e}")
 
@@ -314,6 +403,11 @@ def reload_plot():
         target_yaxis = marker.get('y-axis', 'primary')
         axis_for_marker = axes.get(target_subplot)
         show_markers = legend_settings.get('show_markers', True)
+        # Determine scaling for this subplot
+        subplot_axis_settings = axis_settings.get('subplots', {}).get(target_subplot, {})
+        x_scale = float(subplot_axis_settings.get('x_scale_factor', _unit_factor(subplot_axis_settings.get('x_unit', ''))))
+        y_scale_primary = float(subplot_axis_settings.get('y_scale_factor', _unit_factor(subplot_axis_settings.get('y_unit', ''))))
+        y_scale_secondary = float(subplot_axis_settings.get('y2_scale_factor', _unit_factor(subplot_axis_settings.get('y2_unit', ''))))
         if target_yaxis == 'secondary':
             if secondary_axes.get(target_subplot) is None and axis_for_marker is not None:
                 secondary_axes[target_subplot] = axis_for_marker.twinx()
@@ -322,17 +416,23 @@ def reload_plot():
             continue
         try:
             if marker['type'] == 'horizontal' and 'y' in marker:
-                label = f"y={marker['y']}" if legend_settings.get('show_markers', True) else ""
-                axis_for_marker.axhline(y=marker['y'], color=marker['color'], linestyle='--', label=label)
+                yval = marker['y'] * (y_scale_secondary if target_yaxis == 'secondary' else y_scale_primary)
+                label = f"y={yval}" if legend_settings.get('show_markers', True) else ""
+                axis_for_marker.axhline(y=yval, color=marker['color'], linestyle='--', label=label)
             elif marker['type'] == 'vertical' and 'x' in marker:
-                label = f"x={marker['x']}" if legend_settings.get('show_markers', True) else ""
-                axis_for_marker.axvline(x=marker['x'], color=marker['color'], linestyle='--', label=label)
+                xval = marker['x'] * x_scale
+                label = f"x={xval}" if legend_settings.get('show_markers', True) else ""
+                axis_for_marker.axvline(x=xval, color=marker['color'], linestyle='--', label=label)
             elif marker['type'] == 'point' and 'x' in marker and 'y' in marker:
-                label = f"({marker['x']}, {marker['y']})" if legend_settings.get('show_markers', True) else ""
-                axis_for_marker.plot(marker['x'], marker['y'], marker='o', color=marker['color'], label=label)
+                xval = marker['x'] * x_scale
+                yval = marker['y'] * (y_scale_secondary if target_yaxis == 'secondary' else y_scale_primary)
+                label = f"({xval}, {yval})" if legend_settings.get('show_markers', True) else ""
+                axis_for_marker.plot(xval, yval, marker='o', color=marker['color'], label=label)
             elif marker['type'] in ('xpoint', 'ypoint') and 'x' in marker and 'y' in marker:
-                label = f"({marker['x']:.2e}, {marker['y']:.2e})" if legend_settings.get('show_markers', True) else ""
-                axis_for_marker.plot(marker['x'], marker['y'], marker='o', color=marker['color'], label=label)
+                xval = marker['x'] * x_scale
+                yval = marker['y'] * (y_scale_secondary if target_yaxis == 'secondary' else y_scale_primary)
+                label = f"({xval:.2e}, {yval:.2e})" if legend_settings.get('show_markers', True) else ""
+                axis_for_marker.plot(xval, yval, marker='o', color=marker['color'], label=label)
         except Exception:
             print("failed to set marker")
 
@@ -433,7 +533,11 @@ def reload_plot():
                     df = pd.read_csv(entry['file_path'])
                     x = df.iloc[:, 0]
                     y = df.iloc[:, 1]
-                    axins.plot(x, y, color=entry.get('color', '#000000'), label=entry.get('label', ''))
+                    # Apply scaling
+                    subplot_axis_settings = axis_settings.get('subplots', {}).get(region_subplot, {})
+                    x_scale = float(subplot_axis_settings.get('x_scale_factor', _unit_factor(subplot_axis_settings.get('x_unit', ''))))
+                    y_scale = float(subplot_axis_settings.get('y2_scale_factor' if y_axis_choice=='secondary' else 'y_scale_factor', _unit_factor(subplot_axis_settings.get('y2_unit' if y_axis_choice=='secondary' else 'y_unit', ''))))
+                    axins.plot(x * x_scale, y * y_scale, color=entry.get('color', '#000000'), label=entry.get('label', ''))
                     plotted_any = True
                 except Exception as e:
                     print(f"Fehler beim Laden der Datei {entry.get('file_path','?')}: {e}")
@@ -441,8 +545,12 @@ def reload_plot():
 
             # Set limits and grid for inset
             try:
-                axins.set_xlim(region['x'])
-                axins.set_ylim(region['y'])
+                # Scale zoom limits
+                subplot_axis_settings = axis_settings.get('subplots', {}).get(region_subplot, {})
+                x_scale = float(subplot_axis_settings.get('x_scale_factor', _unit_factor(subplot_axis_settings.get('x_unit', ''))))
+                y_scale = float(subplot_axis_settings.get('y2_scale_factor' if y_axis_choice=='secondary' else 'y_scale_factor', _unit_factor(subplot_axis_settings.get('y2_unit' if y_axis_choice=='secondary' else 'y_unit', ''))))
+                axins.set_xlim((region['x'][0] * x_scale, region['x'][1] * x_scale))
+                axins.set_ylim((region['y'][0] * y_scale, region['y'][1] * y_scale))
                 
                 if region.get('show_grid', True):
                     c = grid_settings.get('color', 'gray')
@@ -460,21 +568,47 @@ def reload_plot():
                 pass
 
            # Mark inset with connectors (use ax_plot for correct axis reference)
+           
+            inset_corner1 = None
+            inset_corner2 = None
+           
             try:
-                if region.get('loc') in ('upper right', 'lower left'):
-                    mark_inset(ax_plot, axins, loc1=2, loc2=4, fc="none", ec="0.5")
-                elif region.get('loc') in ('upper left',):
-                    mark_inset(ax_plot, axins, loc1=1, loc2=3, fc="none", ec="0.5")
-                elif region.get('loc') in ('lower right',):
-                    mark_inset(ax_plot, axins, loc1=3, loc2=1, fc="none", ec="0.5")
-                elif region.get('loc') in ('center right',):
-                    mark_inset(ax_plot, axins, loc1=2, loc2=3, fc="none", ec="0.5")
-                elif region.get('loc') in ('center left',):
-                    mark_inset(ax_plot, axins, loc1=1, loc2=4, fc="none", ec="0.5")
-                elif region.get('loc') in ('lower center',):
-                    mark_inset(ax_plot, axins, loc1=1, loc2=2, fc="none", ec="0.5")
-                elif region.get('loc') in ('upper center',):
-                    mark_inset(ax_plot, axins, loc1=3, loc2=4, fc="none", ec="0.5")
+                # Prüfe, ob loc_corner1 explizit angegeben ist, sonst Standardwert verwenden
+                corner1_str = region.get('loc_corner1')
+                if corner1_str:
+                    inset_corner1 = int(get_corner_int(corner1_str))
+                    print(f"inset_corner1: {inset_corner1}")
+            except Exception:
+                pass 
+
+            # Lese loc_corner2 aus und konvertiere es in den Integer-Wert
+            try:
+                # Prüfe, ob loc_corner2 explizit angegeben ist, sonst Standardwert verwenden
+                corner2_str = region.get('loc_corner2') # Annahme: Es gibt auch 'loc_corner2'
+                if corner2_str:
+                    inset_corner2 = get_corner_int(corner2_str)
+            except Exception:
+                pass 
+
+            try:
+                # Wenn inset_corner1 und inset_corner2 gesetzt sind, verwenden wir diese
+                if inset_corner1 is not None and inset_corner2 is not None:
+                    mark_inset(ax_plot, axins, loc1=inset_corner1, loc2=inset_corner2, fc="none", ec="0.5")
+
+                # elif region.get('loc') in ('upper right', 'lower left'):
+                #     mark_inset(ax_plot, axins, loc1=2, loc2=4, fc="none", ec="0.5")
+                # elif region.get('loc') in ('upper left',):
+                #     mark_inset(ax_plot, axins, loc1=1, loc2=3, fc="none", ec="0.5")
+                # elif region.get('loc') in ('lower right',):
+                #     mark_inset(ax_plot, axins, loc1=3, loc2=1, fc="none", ec="0.5")
+                # elif region.get('loc') in ('center right',):
+                #     mark_inset(ax_plot, axins, loc1=2, loc2=3, fc="none", ec="0.5")
+                # elif region.get('loc') in ('center left',):
+                #     mark_inset(ax_plot, axins, loc1=1, loc2=4, fc="none", ec="0.5")
+                # elif region.get('loc') in ('lower center',):
+                #     mark_inset(ax_plot, axins, loc1=1, loc2=2, fc="none", ec="0.5")
+                # elif region.get('loc') in ('upper center',):
+                #     mark_inset(ax_plot, axins, loc1=3, loc2=4, fc="none", ec="0.5")
             except Exception:
                 pass
     # After layout & legend updates, try to nicely pack subplots
@@ -718,17 +852,47 @@ def plot_manager():
 
         # Farbe
         tk.Label(edit_window, text="Plot Color:").grid(row=row_idx, column=0, padx=5, pady=5, sticky="w")
+        
         color_display = tk.Label(edit_window, bg=color_var.get(), relief="sunken", width=10)
         color_display.grid(row=row_idx, column=1, padx=5, pady=5, sticky="w")
-
+        
+        def set_color(code: str):
+            color_var.set(code)
+            color_display.config(bg=code)
+        
         def pick_color():
-            color_code = colorchooser.askcolor(title="Select Color")[1]
+            # Startet mit aktueller Farbe (falls vorhanden)
+            start = color_var.get() if color_var.get() else None
+            color_code = colorchooser.askcolor(title="Select Color", initialcolor=start)[1]
             if color_code:
-                color_var.set(color_code)
-                color_display.config(bg=color_code)
+                set_color(color_code)
+        
+        tk.Button(edit_window, text="Select Color", command=pick_color)\
+          .grid(row=row_idx, column=2, padx=5, pady=5, sticky="w")
+        
+        # --- Preset-Grid (2 x 4) unter dem Button ---
+        preset_frame = tk.Frame(edit_window)
+        preset_frame.grid(row=row_idx+1, column=1, columnspan=2, padx=5, pady=(0, 10), sticky="w")
+        
+        # Überschrift (optional)
+        tk.Label(preset_frame, text="Presets:").grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 4))
+        
+        # 2 Reihen x 4 Spalten
+        for i, (name, hexcode) in enumerate(PRESET_COLORS):
+            r, c = divmod(i, 2)              # r=0..1, c=0..3
+            fg = _best_fg(hexcode)
+            btn = tk.Button(
+                preset_frame,
+                text=name, bg=hexcode, fg=fg,
+                width=12, relief="raised",
+                command=lambda code=hexcode: set_color(code)
+            )
+            btn.grid(row=r+1, column=c, padx=3, pady=3, sticky="w")
+        
+        row_idx += 2
 
-        tk.Button(edit_window, text="Select Color", command=pick_color).grid(row=row_idx, column=2, padx=5, pady=5)
-        row_idx += 1
+
+
 
         # Y-Achse
         tk.Label(edit_window, text="Y-Axis:").grid(row=row_idx, column=0, padx=5, pady=5, sticky="w")
@@ -1382,6 +1546,8 @@ def open_zoom_settings():
             width = width_entry.get()
             height = height_entry.get()
             loc = loc_entry.get()
+            loc_corner1 = loc_corner1_entry.get()
+            loc_corner2 = loc_corner2_entry.get()
             show_grid = zoom_grid_var.get()
             plot_ticks = plot_ticks_var.get()
             borderpad = space_entry.get()
@@ -1394,6 +1560,8 @@ def open_zoom_settings():
                 'width': width if width else "30%",
                 'height': height if height else "30%",
                 'loc': loc if loc else "upper right",
+                'loc_corner1' : loc_corner1 if loc_corner1 else "None",
+                'loc_corner2' : loc_corner2 if loc_corner2 else "None",
                 'show_grid': show_grid if show_grid else False,
                 'ticks': plot_ticks if plot_ticks else False,
                 'border_pad': borderpad if borderpad else 1.5,
@@ -1457,6 +1625,8 @@ def open_zoom_settings():
             height_entry.delete(0, tk.END)
             height_entry.insert(0, region.get('height', '30%'))
             loc_entry.set(region.get('loc', 'upper right'))
+            loc_corner1_entry.set(region.get('loc_corner1', 'None'))
+            loc_corner2_entry.set(region.get('loc_corner2', 'None'))
             zoom_grid_var.set(region.get('show_grid', False))
             plot_ticks_var.set(region.get('ticks', False))
             space_entry.delete(0, tk.END)
@@ -1557,17 +1727,29 @@ def open_zoom_settings():
     space_entry = tk.Entry(zoom_window)
     space_entry.insert(0, 1.5)
     space_entry.grid(row=5, column=3)
+    
+    tk.Label(zoom_window, text="Line Inset Corner 1:").grid(row=6, column=0, sticky="w")
+    loc_corner1_entry = tk.StringVar(value="None")
+    loc_corner1_options = ["None", "top right", "top left", "bottom right", "bottom left"]
+    loc_corner1_menu = tk.OptionMenu(zoom_window, loc_corner1_entry, *loc_corner1_options)
+    loc_corner1_menu.grid(row=6, column=1)
+    
+    tk.Label(zoom_window, text="Line Inset Corner 2:").grid(row=6, column=2, sticky="w")
+    loc_corner2_entry = tk.StringVar(value="None")
+    loc_corner2_options = ["None", "top right", "top left", "bottom right", "bottom left"]
+    loc_corner2_menu = tk.OptionMenu(zoom_window, loc_corner2_entry, *loc_corner2_options)
+    loc_corner2_menu.grid(row=6, column=3)
 
-    tk.Button(zoom_window, text="Apply Zoom", command=apply_zoom).grid(row=6, column=0, columnspan=2, pady=10)
-    tk.Button(zoom_window, text="Delete Selected", command=delete_selected_region).grid(row=6, column=2, columnspan=2, pady=10)
+    tk.Button(zoom_window, text="Apply Zoom", command=apply_zoom).grid(row=7, column=0, columnspan=2, pady=10)
+    tk.Button(zoom_window, text="Delete Selected", command=delete_selected_region).grid(row=7, column=2, columnspan=2, pady=10)
 
-    tk.Label(zoom_window, text="Zoom Regions:").grid(row=7, column=0, columnspan=4, sticky="w")
+    tk.Label(zoom_window, text="Zoom Regions:").grid(row=8, column=0, columnspan=4, sticky="w")
     zoom_listbox = tk.Listbox(zoom_window, width=120)
-    zoom_listbox.grid(row=8, column=0, columnspan=4, sticky="w")
+    zoom_listbox.grid(row=9, column=0, columnspan=4, sticky="w")
     zoom_listbox.bind("<Double-Button-1>", edit_selected_region)
 
     status_label = tk.Label(zoom_window, text="Kein Eintrag ausgewählt", fg="blue")
-    status_label.grid(row=9, column=0, columnspan=4, sticky="w", pady=(5, 0))
+    status_label.grid(row=10, column=0, columnspan=4, sticky="w", pady=(5, 0))
 
     # initialize y-axis menu according to current subplot selection
     update_yaxis_menu()
@@ -1707,6 +1889,31 @@ def open_axis_settings():
     auto_ticks = tk.BooleanVar(value=True)
     ttk.Checkbutton(axis_window, text="set ticks automatic", variable=auto_ticks).grid(row=5, column=0, columnspan=4, padx=5)
 
+    # Units and scale factors
+    ttk.Label(axis_window, text="X Unit Label:").grid(row=6, column=0, padx=5, pady=5, sticky="e")
+    x_unit_entry = ttk.Entry(axis_window)
+    x_unit_entry.grid(row=6, column=1, padx=5, pady=5)
+
+    ttk.Label(axis_window, text="X Scale Factor:").grid(row=6, column=2, padx=5, pady=5, sticky="e")
+    x_scale_entry = ttk.Entry(axis_window)
+    x_scale_entry.grid(row=6, column=3, padx=5, pady=5)
+
+    ttk.Label(axis_window, text="Y Unit Label:").grid(row=7, column=0, padx=5, pady=5, sticky="e")
+    y_unit_entry = ttk.Entry(axis_window)
+    y_unit_entry.grid(row=7, column=1, padx=5, pady=5)
+
+    ttk.Label(axis_window, text="Y Scale Factor:").grid(row=7, column=2, padx=5, pady=5, sticky="e")
+    y_scale_entry = ttk.Entry(axis_window)
+    y_scale_entry.grid(row=7, column=3, padx=5, pady=5)
+
+    ttk.Label(axis_window, text="Y2 Unit Label:").grid(row=8, column=0, padx=5, pady=5, sticky="e")
+    y2_unit_entry = ttk.Entry(axis_window)
+    y2_unit_entry.grid(row=8, column=1, padx=5, pady=5)
+
+    ttk.Label(axis_window, text="Y2 Scale Factor:").grid(row=8, column=2, padx=5, pady=5, sticky="e")
+    y2_scale_entry = ttk.Entry(axis_window)
+    y2_scale_entry.grid(row=8, column=3, padx=5, pady=5)
+
     def apply_settings():
         subplot_num = int(subplot_var.get())
         
@@ -1714,6 +1921,43 @@ def open_axis_settings():
         if 'subplots' not in axis_settings:
             axis_settings['subplots'] = {}
         
+        # Derive scale factors with precedence: unit label > explicit scale > 1.0
+        xu_lbl = x_unit_entry.get().strip()
+        xs_str = x_scale_entry.get().strip()
+        if xu_lbl:
+            xs_val = _unit_factor(xu_lbl)
+        elif xs_str:
+            try:
+                xs_val = float(xs_str)
+            except Exception:
+                xs_val = 1.0
+        else:
+            xs_val = 1.0
+
+        yu_lbl = y_unit_entry.get().strip()
+        ys_str = y_scale_entry.get().strip()
+        if yu_lbl:
+            ys_val = _unit_factor(yu_lbl)
+        elif ys_str:
+            try:
+                ys_val = float(ys_str)
+            except Exception:
+                ys_val = 1.0
+        else:
+            ys_val = 1.0
+
+        y2u_lbl = y2_unit_entry.get().strip()
+        y2s_str = y2_scale_entry.get().strip()
+        if y2u_lbl:
+            y2s_val = _unit_factor(y2u_lbl)
+        elif y2s_str:
+            try:
+                y2s_val = float(y2s_str)
+            except Exception:
+                y2s_val = 1.0
+        else:
+            y2s_val = 1.0
+
         # Update or create settings for selected subplot
         axis_settings['subplots'][subplot_num] = {
             "x_axis_type": x_axis_type.get(),
@@ -1728,7 +1972,14 @@ def open_axis_settings():
             "invert_x": invert_x.get(),
             "invert_y": invert_y.get(),
             "invert_y2": invert_y2.get(),
-            "auto_ticks": auto_ticks.get()
+            "auto_ticks": auto_ticks.get(),
+            # Unit labels and scale factors (unit label preferred)
+            "x_unit": xu_lbl,
+            "y_unit": yu_lbl,
+            "y2_unit": y2u_lbl,
+            "x_scale_factor": xs_val,
+            "y_scale_factor": ys_val,
+            "y2_scale_factor": y2s_val
         }
         
         reload_plot()
@@ -1761,6 +2012,22 @@ def open_axis_settings():
         invert_y.set(subplot_settings.get('invert_y', False))
         auto_ticks.set(subplot_settings.get('auto_ticks', True))
 
+        # Units and scale factors for primary axes
+        try:
+            x_unit_entry.delete(0, tk.END)
+            x_unit_entry.insert(0, subplot_settings.get('x_unit', ''))
+            x_scale_entry.delete(0, tk.END)
+            x_scale_entry.insert(0, str(subplot_settings.get('x_scale_factor', _unit_factor(subplot_settings.get('x_unit', '')))))
+        except Exception:
+            pass
+        try:
+            y_unit_entry.delete(0, tk.END)
+            y_unit_entry.insert(0, subplot_settings.get('y_unit', ''))
+            y_scale_entry.delete(0, tk.END)
+            y_scale_entry.insert(0, str(subplot_settings.get('y_scale_factor', _unit_factor(subplot_settings.get('y_unit', '')))))
+        except Exception:
+            pass
+
         
         # Sekundäre Y-Achse anzeigen, wenn vorhanden
         if has_secondary_y_axis:
@@ -1786,6 +2053,14 @@ def open_axis_settings():
             invert_y2_check.config(text="invert Y2-Axis", variable=invert_y2)
             invert_y2_check.grid(row=4, column=4, columnspan=2, padx=5)
             invert_y2.set(subplot_settings.get('invert_y2', False))
+            # Secondary unit and scale
+            try:
+                y2_unit_entry.delete(0, tk.END)
+                y2_unit_entry.insert(0, subplot_settings.get('y2_unit', ''))
+                y2_scale_entry.delete(0, tk.END)
+                y2_scale_entry.insert(0, str(subplot_settings.get('y2_scale_factor', _unit_factor(subplot_settings.get('y2_unit', '')))))
+            except Exception:
+                pass
         else:
             y2_axis_type_label.grid_remove()
             y2_axis_type.grid_remove()
@@ -1794,6 +2069,11 @@ def open_axis_settings():
             y2_max_label.grid_remove()
             y2_max_entry.grid_remove()
             invert_y2_check.grid_remove()
+            try:
+                y2_unit_entry.delete(0, tk.END)
+                y2_scale_entry.delete(0, tk.END)
+            except Exception:
+                pass
 
 
 
@@ -1803,25 +2083,9 @@ def open_axis_settings():
     # Initial update of fields
     update_fields()
 
-    ttk.Button(axis_window, text="Apply", command=apply_settings).grid(row=6, column=0, columnspan=4, pady=10)
-
+    ttk.Button(axis_window, text="Apply", command=apply_settings).grid(row=9, column=0, columnspan=4, pady=10)
 
 def open_presets_manager():
-    """
-    Presets manager:
-    - save current settings as preset (JSON in PRESETS_DIR)
-    - load preset (apply to application state)
-    - delete / import / export presets
-    Stored keys in preset JSON:
-     - subplot_settings
-     - grid_settings
-     - legend_settings
-     - zoom_regions
-     - markers
-     - axis_settings
-     - plot_title
-     - save_settings
-    """
     def list_presets():
         files = []
         try:
@@ -1995,8 +2259,25 @@ def open_presets_manager():
 
     refresh_list()
 
+
+# Funktion für das Hilfe-Menü
+def show_help():
+    messagebox.showinfo("Hilfe", "Dies ist der CSV Plotter.\n\nLaden Sie eine CSV-Datei und verwenden Sie die verfügbaren Einstellungen, um den Plot anzupassen.")
+
+
 root = tk.Tk()
 root.title("CSV Plotter")
+
+# Menüleiste hinzufügen
+menubar = tk.Menu(root)
+
+# Hilfe-Menü mit Fragezeichen
+help_menu = tk.Menu(menubar, tearoff=0)
+help_menu.add_command(label="Über", command=show_help)
+menubar.add_cascade(label="?", menu=help_menu)
+
+# Menüleiste dem Fenster zuweisen
+root.config(menu=menubar)
 
 preset_button = None
 # Root window layout
@@ -2004,7 +2285,6 @@ tk.Label(root, text="Plot Title:").grid(row=0, column=0)
 title_entry = tk.Entry(root)
 title_entry.insert(0, "Output Noise Plot")
 title_entry.grid(row=0, column=1)
-
 
 # New Presets button (disabled initially; enabled by plot_manager)
 presets_button = tk.Button(root, text="Presets", command=open_presets_manager, state=tk.NORMAL, padx=width_pad_root)
@@ -2038,10 +2318,9 @@ subplot_button.grid(row=4, column=2)
 
 plot_label = tk.Label(root, text="Plot").grid(row=5, column=0, columnspan=3)
 
-
-
 fig, ax = plt.subplots(figsize=(6, 4))
 canvas = FigureCanvasTkAgg(fig, master=root)
 canvas.get_tk_widget().grid(row=12, column=0, columnspan=3)
 
+# Start the Tkinter event loop to keep the window open
 root.mainloop()
