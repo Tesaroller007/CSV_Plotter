@@ -88,6 +88,23 @@ save_settings = {
     "height": 4
 }
 
+# Plot layout settings (size and spacing)
+layout_settings = {
+    "automatic": True,            # use tight_layout by default
+    "use_constrained": False,     # enable constrained_layout on figure
+    "plot_width": 6.0,            # per subplot width (inches)
+    "plot_height": 4.0,           # per subplot height (inches)
+    "hspace": 0.35,               # vertical spacing between subplots
+    "wspace": 0.25,               # horizontal spacing between subplots
+    "left": 0.08,
+    "right": 0.96,
+    "top": 0.92,
+    "bottom": 0.08
+}
+
+# Per-subplot layout overrides (ratios and inner padding)
+subplot_layout_overrides = {}
+
 PRESETS_DIR = os.path.join(os.path.dirname(__file__), "presets")
 os.makedirs(PRESETS_DIR, exist_ok=True)
 
@@ -222,7 +239,12 @@ def reload_plot():
 
     # Get layout settings
     rows, cols = map(int, subplot_settings['layout'].split('x'))
-    fig.set_size_inches(6 * cols, 4 * rows)  # Adjust figure size based on layout
+    try:
+        pw = float(layout_settings.get('plot_width', 6.0))
+        ph = float(layout_settings.get('plot_height', 4.0))
+    except Exception:
+        pw, ph = 6.0, 4.0
+    fig.set_size_inches(pw * cols, ph * rows)  # Adjust figure size based on layout
 
     # Ensure canvas widget matches figure pixel size so it can display all subplots
     try:
@@ -234,7 +256,26 @@ def reload_plot():
         pass
 
     # Create grid of axes (always 2D array to simplify indexing)
-    axes_arr = fig.subplots(rows, cols, squeeze=False)
+    # Apply per-row/column ratios derived from per-subplot overrides
+    try:
+        height_ratios = [1.0] * rows
+        width_ratios = [1.0] * cols
+        for si, ov in subplot_layout_overrides.items():
+            try:
+                r = (int(si) - 1) // cols
+                c = (int(si) - 1) % cols
+                hr = float(ov.get('height_ratio', 1.0))
+                wr = float(ov.get('width_ratio', 1.0))
+                height_ratios[r] = max(height_ratios[r], hr)
+                width_ratios[c] = max(width_ratios[c], wr)
+            except Exception:
+                pass
+        axes_arr = fig.subplots(rows, cols, squeeze=False, gridspec_kw={
+            'height_ratios': height_ratios,
+            'width_ratios': width_ratios
+        })
+    except Exception:
+        axes_arr = fig.subplots(rows, cols, squeeze=False)
     axes = {}
     secondary_axes = {}
 
@@ -335,24 +376,30 @@ def reload_plot():
                 except Exception:
                     pass
 
-            # Apply tick formatters depending on EU decimal setting
+            # Apply tick formatters depending on EU decimal and per-axis scientific notation settings
             try:
                 use_eu = axis_settings.get('use_eu_decimal', True)
+                subplot_axis_settings = axis_settings.get('subplots', {}).get(idx, {})
+                sci_x = subplot_axis_settings.get('use_sci_notation_x', False)
+                sci_y = subplot_axis_settings.get('use_sci_notation_y', False)
+                sci_y2 = subplot_axis_settings.get('use_sci_notation_y2', False)
+
                 if use_eu:
-                    ff = mpl.ticker.FuncFormatter(format_number_eu)
-                    ax.xaxis.set_major_formatter(ff)
-                    ax.yaxis.set_major_formatter(ff)
-                    ax.xaxis.set_minor_formatter(ff)
-                    ax.yaxis.set_minor_formatter(ff)
-                    if secondary_axes[idx] is not None:
-                        secondary_axes[idx].yaxis.set_major_formatter(ff)
-                        secondary_axes[idx].yaxis.set_minor_formatter(ff)
+                    fx = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_x: format_sci_eu(x, 2) if use_sci else format_number_eu(x, pos))
+                    fy = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_y: format_sci_eu(x, 2) if use_sci else format_number_eu(x, pos))
+                    fy2 = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_y2: format_sci_eu(x, 2) if use_sci else format_number_eu(x, pos))
                 else:
-                    sf = mpl.ticker.ScalarFormatter(useMathText=False)
-                    ax.xaxis.set_major_formatter(sf)
-                    ax.yaxis.set_major_formatter(sf)
-                    if secondary_axes[idx] is not None:
-                        secondary_axes[idx].yaxis.set_major_formatter(sf)
+                    fx = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_x: format_sci_us(x, 2) if use_sci else format_number_us(x, pos))
+                    fy = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_y: format_sci_us(x, 2) if use_sci else format_number_us(x, pos))
+                    fy2 = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_y2: format_sci_us(x, 2) if use_sci else format_number_us(x, pos))
+
+                ax.xaxis.set_major_formatter(fx)
+                ax.xaxis.set_minor_formatter(fx)
+                ax.yaxis.set_major_formatter(fy)
+                ax.yaxis.set_minor_formatter(fy)
+                if secondary_axes[idx] is not None:
+                    secondary_axes[idx].yaxis.set_major_formatter(fy2)
+                    secondary_axes[idx].yaxis.set_minor_formatter(fy2)
             except Exception:
                 pass
 
@@ -457,21 +504,24 @@ def reload_plot():
             # Re-apply tick formatters after scale and tick config
             try:
                 use_eu = axis_settings.get('use_eu_decimal', True)
+                subplot_axis_settings = axis_settings.get('subplots', {}).get(subplot_num, {})
+                sci_x = subplot_axis_settings.get('use_sci_notation_x', False)
+                sci_y = subplot_axis_settings.get('use_sci_notation_y', False)
+                sci_y2 = subplot_axis_settings.get('use_sci_notation_y2', False)
+
                 if use_eu:
-                    ff = mpl.ticker.FuncFormatter(format_number_eu)
-                    ax.xaxis.set_major_formatter(ff)
-                    ax.yaxis.set_major_formatter(ff)
-                    #ax.xaxis.set_minor_formatter(ff)
-                    #ax.yaxis.set_minor_formatter(ff)
-                    if sec_ax is not None:
-                        sec_ax.yaxis.set_major_formatter(ff)
-                        #sec_ax.yaxis.set_minor_formatter(ff)
+                    fx = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_x: format_sci_eu(x, 2) if use_sci else format_number_eu(x, pos))
+                    fy = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_y: format_sci_eu(x, 2) if use_sci else format_number_eu(x, pos))
+                    fy2 = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_y2: format_sci_eu(x, 2) if use_sci else format_number_eu(x, pos))
                 else:
-                    sf = mpl.ticker.ScalarFormatter(useMathText=False)
-                    ax.xaxis.set_major_formatter(sf)
-                    ax.yaxis.set_major_formatter(sf)
-                    if sec_ax is not None:
-                        sec_ax.yaxis.set_major_formatter(sf)
+                    fx = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_x: format_sci_us(x, 2) if use_sci else format_number_us(x, pos))
+                    fy = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_y: format_sci_us(x, 2) if use_sci else format_number_us(x, pos))
+                    fy2 = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_y2: format_sci_us(x, 2) if use_sci else format_number_us(x, pos))
+
+                ax.xaxis.set_major_formatter(fx)
+                ax.yaxis.set_major_formatter(fy)
+                if sec_ax is not None:
+                    sec_ax.yaxis.set_major_formatter(fy2)
             except Exception:
                 pass
 
@@ -536,7 +586,14 @@ def reload_plot():
             if marker['type'] == 'horizontal' and 'y' in marker:
                 yval = marker['y'] * (y_scale_secondary if target_yaxis == 'secondary' else y_scale_primary)
                 use_eu = axis_settings.get('use_eu_decimal', True)
-                fmt = format_number_eu if use_eu else format_number_us
+                # choose sci toggle according to axis (primary vs secondary), per subplot
+                subplot_axis_settings = axis_settings.get('subplots', {}).get(target_subplot, {})
+                use_sci_y = (subplot_axis_settings.get('use_sci_notation_y', False) if target_yaxis == 'primary'
+                              else subplot_axis_settings.get('use_sci_notation_y2', False))
+                if use_eu:
+                    fmt = (lambda v: format_sci_eu(v, 2)) if use_sci_y else (lambda v: format_number_eu(v))
+                else:
+                    fmt = (lambda v: format_sci_us(v, 2)) if use_sci_y else (lambda v: format_number_us(v))
                 auto_label = f"y={fmt(yval)}"
                 label = ""
                 if legend_settings.get('show_markers', True):
@@ -548,7 +605,12 @@ def reload_plot():
             elif marker['type'] == 'vertical' and 'x' in marker:
                 xval = marker['x'] * x_scale
                 use_eu = axis_settings.get('use_eu_decimal', True)
-                fmt = format_number_eu if use_eu else format_number_us
+                subplot_axis_settings = axis_settings.get('subplots', {}).get(target_subplot, {})
+                use_sci_x = subplot_axis_settings.get('use_sci_notation_x', False)
+                if use_eu:
+                    fmt = (lambda v: format_sci_eu(v, 2)) if use_sci_x else (lambda v: format_number_eu(v))
+                else:
+                    fmt = (lambda v: format_sci_us(v, 2)) if use_sci_x else (lambda v: format_number_us(v))
                 auto_label = f"x={fmt(xval)}"
                 label = ""
                 if legend_settings.get('show_markers', True):
@@ -561,8 +623,17 @@ def reload_plot():
                 xval = marker['x'] * x_scale
                 yval = marker['y'] * (y_scale_secondary if target_yaxis == 'secondary' else y_scale_primary)
                 use_eu = axis_settings.get('use_eu_decimal', True)
-                fmt = format_number_eu if use_eu else format_number_us
-                auto_label = f"({fmt(xval)}, {fmt(yval)})"
+                subplot_axis_settings = axis_settings.get('subplots', {}).get(target_subplot, {})
+                use_sci_x = subplot_axis_settings.get('use_sci_notation_x', False)
+                use_sci_y = (subplot_axis_settings.get('use_sci_notation_y', False) if target_yaxis == 'primary'
+                              else subplot_axis_settings.get('use_sci_notation_y2', False))
+                if use_eu:
+                    fmtx = (lambda v: format_sci_eu(v, 2)) if use_sci_x else (lambda v: format_number_eu(v))
+                    fmty = (lambda v: format_sci_eu(v, 2)) if use_sci_y else (lambda v: format_number_eu(v))
+                else:
+                    fmtx = (lambda v: format_sci_us(v, 2)) if use_sci_x else (lambda v: format_number_us(v))
+                    fmty = (lambda v: format_sci_us(v, 2)) if use_sci_y else (lambda v: format_number_us(v))
+                auto_label = f"({fmtx(xval)}, {fmty(yval)})"
                 label = ""
                 if legend_settings.get('show_markers', True):
                     if marker.get('legend_mode', 'auto') == 'custom' and marker.get('legend_label'):
@@ -574,8 +645,17 @@ def reload_plot():
                 xval = marker['x'] * x_scale
                 yval = marker['y'] * (y_scale_secondary if target_yaxis == 'secondary' else y_scale_primary)
                 use_eu = axis_settings.get('use_eu_decimal', True)
-                fmt_sci = format_sci_eu if use_eu else format_sci_us
-                auto_label = f"({fmt_sci(xval, 2)}, {fmt_sci(yval, 2)})"
+                subplot_axis_settings = axis_settings.get('subplots', {}).get(target_subplot, {})
+                use_sci_x = subplot_axis_settings.get('use_sci_notation_x', False)
+                use_sci_y = (subplot_axis_settings.get('use_sci_notation_y', False) if target_yaxis == 'primary'
+                              else subplot_axis_settings.get('use_sci_notation_y2', False))
+                if use_eu:
+                    fmtx = (lambda v: format_sci_eu(v, 2)) if use_sci_x else (lambda v: format_number_eu(v))
+                    fmty = (lambda v: format_sci_eu(v, 2)) if use_sci_y else (lambda v: format_number_eu(v))
+                else:
+                    fmtx = (lambda v: format_sci_us(v, 2)) if use_sci_x else (lambda v: format_number_us(v))
+                    fmty = (lambda v: format_sci_us(v, 2)) if use_sci_y else (lambda v: format_number_us(v))
+                auto_label = f"({fmtx(xval)}, {fmty(yval)})"
                 label = ""
                 if legend_settings.get('show_markers', True):
                     if marker.get('legend_mode', 'auto') == 'custom' and marker.get('legend_label'):
@@ -761,14 +841,65 @@ def reload_plot():
                 #     mark_inset(ax_plot, axins, loc1=3, loc2=4, fc="none", ec="0.5")
             except Exception:
                 pass
-    # After layout & legend updates, try to nicely pack subplots
+    # After layout & legend updates, apply spacing
     try:
-        fig.tight_layout()
+        auto = bool(layout_settings.get('automatic', True))
+        use_constrained = bool(layout_settings.get('use_constrained', False))
+        hspace = float(layout_settings.get('hspace', 0.35))
+        wspace = float(layout_settings.get('wspace', 0.25))
+
+        if use_constrained:
+            try:
+                fig.set_constrained_layout(True)
+                # Control spacing between subplots when using constrained layout
+                # hspace (vertical) and wspace (horizontal) are supported here
+                fig.set_constrained_layout_pads(wspace=wspace, hspace=hspace)
+            except Exception:
+                pass
+        else:
+            try:
+                fig.set_constrained_layout(False)
+            except Exception:
+                pass
+
+            if auto:
+                try:
+                    fig.tight_layout()
+                except Exception:
+                    pass
+            else:
+                left = float(layout_settings.get('left', 0.08))
+                right = float(layout_settings.get('right', 0.96))
+                top = float(layout_settings.get('top', 0.92))
+                bottom = float(layout_settings.get('bottom', 0.08))
+                try:
+                    fig.subplots_adjust(left=left, right=right, top=top, bottom=bottom, hspace=hspace, wspace=wspace)
+                except Exception:
+                    pass
     except Exception:
-        try:
-            fig.subplots_adjust(hspace=0.35, wspace=0.25)
-        except Exception:
-            pass
+        pass
+
+    # Apply per-subplot inner padding (shrink axes to create local spacing)
+    try:
+        for si, ax in axes.items():
+            ov = subplot_layout_overrides.get(si)
+            if not ov:
+                continue
+            try:
+                pl = float(ov.get('pad_left', 0.0))
+                pr = float(ov.get('pad_right', 0.0))
+                pt = float(ov.get('pad_top', 0.0))
+                pb = float(ov.get('pad_bottom', 0.0))
+                pos = ax.get_position()
+                new_left = pos.x0 + pl * pos.width
+                new_bottom = pos.y0 + pb * pos.height
+                new_width = pos.width * max(0.0, 1.0 - pl - pr)
+                new_height = pos.height * max(0.0, 1.0 - pt - pb)
+                ax.set_position([new_left, new_bottom, new_width, new_height])
+            except Exception:
+                pass
+    except Exception:
+        pass
 
     # Finally update canvas
     try:
@@ -1084,8 +1215,8 @@ def plot_manager():
             edit_window.destroy()
 
         # Buttons
-        tk.Button(edit_window, text="Save changes!", command=save_changes).grid(row=row_idx, column=0, columnspan=2, padx=5, pady=10)
-        tk.Button(edit_window, text="Cancle", command=cancel_edit).grid(row=row_idx, column=2, padx=5, pady=10)
+        tk.Button(edit_window, text="Save changes", command=save_changes).grid(row=row_idx, column=0, columnspan=2, padx=5, pady=10)
+        tk.Button(edit_window, text="Cancel", command=cancel_edit).grid(row=row_idx, column=2, padx=5, pady=10)
 
         edit_window.grid_columnconfigure(1, weight=1) # Erlaubt der Label-Entry-Box, sich auszudehnen
 
@@ -1093,7 +1224,7 @@ def plot_manager():
         return edited_data
     
     manager_window = tk.Toplevel(root)
-    manager_window.title("Plotmanager")
+    manager_window.title("Plot Manager")
     manager_window.transient(root) # Macht das Manager-Fenster abhängig vom Hauptfenster
 
     listbox = tk.Listbox(manager_window, width=80)
@@ -1108,6 +1239,7 @@ def plot_manager():
     legend_button.config(state=tk.NORMAL)
     axis_button.config(state=tk.NORMAL)
     subplot_button.config(state=tk.NORMAL)
+    layout_button.config(state=tk.NORMAL)
 
     def update_listbox():
         listbox.delete(0, tk.END)
@@ -1115,7 +1247,7 @@ def plot_manager():
             filename = os.path.basename(entry['file_path'])
             y_axis = entry.get("y_axis", "primary")
             subplot = entry.get("subplot", 1) # Standardwert für subplot
-            listbox.insert(tk.END, f"{entry['label']} ({entry['color']}) - {filename} [Y-Achse: {y_axis}, Subplot: {subplot}]")
+            listbox.insert(tk.END, f"{entry['label']} ({entry['color']}) - {filename} [Y-Axis: {y_axis}, Subplot: {subplot}]")
 
 
     def add_entry():
@@ -1147,7 +1279,7 @@ def plot_manager():
     def edit_entry():
         selected = listbox.curselection()
         if not selected:
-            messagebox.showinfo("Hinweis", "Bitte wähle einen Eintrag aus.", parent=manager_window)
+            messagebox.showinfo("Notice", "Please select an entry.", parent=manager_window)
             return
         index = selected[0]
         current_entry = entries[index]
@@ -1158,18 +1290,18 @@ def plot_manager():
         if updated_data:
             # Aktualisiere den Eintrag mit den neuen Daten
             entries[index].update(updated_data)
-            messagebox.showinfo("Erfolg", f"Plot '{updated_data['label']}' wurde aktualisiert.", parent=manager_window)
+            messagebox.showinfo("Success", f"Plot '{updated_data['label']}' was updated.", parent=manager_window)
             update_listbox()
         else:
-            messagebox.showinfo("Info", "Bearbeitung abgebrochen oder keine Änderungen vorgenommen.", parent=manager_window)
+            messagebox.showinfo("Info", "Edit canceled or no changes made.", parent=manager_window)
 
     def delete_entry():
         selected = listbox.curselection()
         if not selected:
-            messagebox.showinfo("Hinweis", "Bitte wähle einen Eintrag aus.", parent=manager_window)
+            messagebox.showinfo("Notice", "Please select an entry.", parent=manager_window)
             return
         index = selected[0]
-        confirm = messagebox.askyesno("Löschen bestätigen", "Möchtest du den ausgewählten Eintrag wirklich löschen?", parent=manager_window)
+        confirm = messagebox.askyesno("Confirm Delete", "Do you really want to delete the selected entry?", parent=manager_window)
         if confirm:
             del entries[index]
             update_listbox()
@@ -1180,9 +1312,9 @@ def plot_manager():
             try:
                 with open(file_path, "w") as f:
                     json.dump(entries, f, indent=2)
-                messagebox.showinfo("Gespeichert", f"Konfiguration gespeichert unter:\n{file_path}", parent=manager_window)
+                messagebox.showinfo("Saved", f"Configuration saved to:\n{file_path}", parent=manager_window)
             except Exception as e:
-                messagebox.showerror("Fehler", f"Fehler beim Speichern der Datei:\n{e}", parent=manager_window)
+                messagebox.showerror("Error", f"Error while saving file:\n{e}", parent=manager_window)
 
 
     def load_config():
@@ -1195,11 +1327,11 @@ def plot_manager():
                     entries.clear()
                     entries.extend(loaded_entries)
                     update_listbox()
-                    messagebox.showinfo("Geladen", f"Konfiguration geladen von:\n{file_path}", parent=manager_window)
+                    messagebox.showinfo("Loaded", f"Configuration loaded from:\n{file_path}", parent=manager_window)
                 else:
-                    messagebox.showerror("Fehler", "Ungültiges Format in der JSON-Datei.", parent=manager_window)
+                    messagebox.showerror("Error", "Invalid format in JSON file.", parent=manager_window)
             except Exception as e:
-                messagebox.showerror("Fehler", f"Fehler beim Laden der Datei:\n{e}", parent=manager_window)
+                messagebox.showerror("Error", f"Error while loading file:\n{e}", parent=manager_window)
 
     # Buttons
     tk.Button(manager_window, text="Add CSV-File", command=add_entry).grid(row=1, column=0, padx=5, pady=5)
@@ -1398,6 +1530,10 @@ def open_grid_settings():
             subcfg['ticks_left'] = defaults['ticks_left']
             subcfg['ticks_bottom'] = defaults['ticks_bottom']
             subcfg['ticks_right'] = defaults['ticks_right']
+            # Reset minor grid settings per subplot as well
+            subcfg['minor_same_as_major'] = defaults['minor_same_as_major']
+            subcfg['minor_grid_color'] = defaults['color'] if defaults['minor_same_as_major'] else defaults['minor_color']
+            subcfg['minor_grid_linewidth'] = float(defaults['linewidth'] if defaults['minor_same_as_major'] else defaults['minor_linewidth'])
 
         # update UI controls to reflect defaults for currently selected target
         grid_var.set(defaults['visible'])
@@ -1706,7 +1842,7 @@ def set_marker():
                 markers.append(new_marker)
 
             update_marker_list()
-            status_label.config(text="Kein Eintrag ausgewählt")
+            status_label.config(text="No entry selected")
             reload_plot()
             
         except ValueError as e:
@@ -1743,7 +1879,7 @@ def set_marker():
     tk.Button(marker_window, text="Delete Selected", 
              command=lambda: delete_selected_marker(marker_list)).grid(row=9, column=1)
 
-    status_label = tk.Label(marker_window, text="Kein Eintrag ausgewählt", fg="blue")
+    status_label = tk.Label(marker_window, text="No entry selected", fg="blue")
     status_label.grid(row=10, column=0, columnspan=3, sticky="w", pady=(5, 0))
     
     def delete_selected_marker(listbox):
@@ -1754,7 +1890,7 @@ def set_marker():
         index = selection[0]
         del markers[index]
         update_marker_list()
-        status_label.config(text="Kein Eintrag ausgewählt")
+        status_label.config(text="No entry selected")
         reload_plot()
 
     # Initialize UI
@@ -1808,9 +1944,9 @@ def open_zoom_settings():
             status_label.config(text="Kein Eintrag ausgewählt")
             reload_plot()
         except ValueError:
-            messagebox.showerror("Fehler", "Bitte gültige numerische Werte eingeben.", parent=zoom_window)
+            messagebox.showerror("Error", "Please enter valid numeric values.", parent=zoom_window)
         except Exception as e:
-            messagebox.showerror("Fehler", f"Fehler beim Anwenden des Zooms:\n{e}", parent=zoom_window)
+            messagebox.showerror("Error", f"Failed to apply zoom:\n{e}", parent=zoom_window)
 
     def update_listbox():
         zoom_listbox.delete(0, tk.END)
@@ -1860,7 +1996,7 @@ def open_zoom_settings():
 
             # Merke dir den Index für späteres Überschreiben
             zoom_window.selected_index = index
-            status_label.config(text=f"Bearbeite Eintrag #{index + 1}")
+            status_label.config(text=f"Editing entry #{index + 1}")
 
     zoom_window = tk.Toplevel(root)
     zoom_window.title("Zoom Settings")
@@ -2071,7 +2207,7 @@ def open_axis_settings():
 
     ttk.Label(axis_window, text="Y-Axis:").grid(row=1, column=2, padx=5, pady=5, sticky="e")
     y_axis_type = ttk.Combobox(axis_window, values=["linear", "log"], state="readonly")
-    x_axis_type.set(axis_settings['subplots'][1].get('y_axis_type', 'linear'))
+    y_axis_type.set(axis_settings['subplots'][1].get('y_axis_type', 'linear'))
     y_axis_type.grid(row=1, column=3, padx=5, pady=5)
 
     # Skalierung
@@ -2118,6 +2254,18 @@ def open_axis_settings():
     # Use European decimal comma for tick labels
     eu_decimal_var = tk.BooleanVar(value=axis_settings.get('use_eu_decimal', True))
     ttk.Checkbutton(axis_window, text="Use European decimal comma", variable=eu_decimal_var).grid(row=9, column=0, columnspan=4, padx=5)
+
+    # Scientific notation toggles per axis (per subplot; values set in update_fields)
+    sci_x_var = tk.BooleanVar(value=False)
+    sci_y_var = tk.BooleanVar(value=False)
+    sci_y2_var = tk.BooleanVar(value=False)
+
+    check_frame = ttk.Frame(axis_window)
+    check_frame.grid(row=10, column=0, columnspan=4)
+
+    ttk.Checkbutton(check_frame, text="Scientific for X (1e3)", variable=sci_x_var).pack(side="left", padx=5)
+    ttk.Checkbutton(check_frame, text="Scientific for Y (1e3)", variable=sci_y_var).pack(side="left", padx=5)
+    ttk.Checkbutton(check_frame, text="Scientific for Y2 (1e3)", variable=sci_y2_var).pack(side="left", padx=5)
 
     # Units and scale factors
     ttk.Label(axis_window, text="X Unit Label:").grid(row=6, column=0, padx=5, pady=5, sticky="e")
@@ -2209,7 +2357,11 @@ def open_axis_settings():
             "y2_unit": y2u_lbl,
             "x_scale_factor": xs_val,
             "y_scale_factor": ys_val,
-            "y2_scale_factor": y2s_val
+            "y2_scale_factor": y2s_val,
+            # Per-subplot scientific notation toggles
+            "use_sci_notation_x": bool(sci_x_var.get()),
+            "use_sci_notation_y": bool(sci_y_var.get()),
+            "use_sci_notation_y2": bool(sci_y2_var.get())
         }
         axis_settings['use_eu_decimal'] = eu_decimal_var.get()
         
@@ -2266,8 +2418,10 @@ def open_axis_settings():
             y2_axis_type_label.config(text="Y2-Axis:")
             y2_axis_type_label.grid(row=1, column=4, padx=5, pady=5, sticky="e")
             y2_axis_type.grid(row=1, column=5, padx=5, pady=5)
-            y2_axis_type.delete(0, tk.END)
-            y2_axis_type.insert(0, subplot_settings.get('y2_axis_type', 'linear'))
+            try:
+                y2_axis_type.set(subplot_settings.get('y2_axis_type', 'linear'))
+            except Exception:
+                pass
 
             y2_min_label.config(text="Y2-Min:")
             y2_min_label.grid(row=2, column=4, padx=5, pady=5, sticky="e")
@@ -2306,6 +2460,14 @@ def open_axis_settings():
             except Exception:
                 pass
 
+        # Set per-subplot scientific notation toggles
+        try:
+            sci_x_var.set(bool(subplot_settings.get('use_sci_notation_x', False)))
+            sci_y_var.set(bool(subplot_settings.get('use_sci_notation_y', False)))
+            sci_y2_var.set(bool(subplot_settings.get('use_sci_notation_y2', False)))
+        except Exception:
+            pass
+
 
 
     # Bind the update function to subplot selection
@@ -2314,7 +2476,179 @@ def open_axis_settings():
     # Initial update of fields
     update_fields()
 
-    ttk.Button(axis_window, text="Apply", command=apply_settings).grid(row=10, column=0, columnspan=4, pady=10)
+    ttk.Button(axis_window, text="Apply", command=apply_settings).grid(row=11, column=0, columnspan=4, pady=10)
+
+def open_plot_layout_settings():
+    win = tk.Toplevel(root)
+    win.title("Plot Layout Settings")
+    win.geometry("320x700")
+
+    # Determine available subplots
+    rows, cols = map(int, subplot_settings.get('layout', '1x1').split('x'))
+    subplot_options = ["All subplots"] + [str(i) for i in range(1, rows * cols + 1)]
+
+    target_var = tk.StringVar(value="All subplots")
+    ttk.Label(win, text="Target:").grid(row=0, column=0, padx=8, pady=6, sticky="e")
+    target_combo = ttk.Combobox(win, values=subplot_options, textvariable=target_var, state="readonly")
+    target_combo.grid(row=0, column=1, padx=8, pady=6, sticky="w")
+
+    # Global settings widgets
+    auto_var = tk.BooleanVar(value=layout_settings.get("automatic", True))
+    constr_var = tk.BooleanVar(value=layout_settings.get("use_constrained", False))
+    plot_width_var = tk.StringVar(value=str(layout_settings.get("plot_width", 6.0)))
+    plot_height_var = tk.StringVar(value=str(layout_settings.get("plot_height", 4.0)))
+    hspace_var = tk.StringVar(value=str(layout_settings.get("hspace", 0.35)))
+    wspace_var = tk.StringVar(value=str(layout_settings.get("wspace", 0.25)))
+    left_var = tk.StringVar(value=str(layout_settings.get("left", 0.08)))
+    right_var = tk.StringVar(value=str(layout_settings.get("right", 0.96)))
+    top_var = tk.StringVar(value=str(layout_settings.get("top", 0.92)))
+    bottom_var = tk.StringVar(value=str(layout_settings.get("bottom", 0.08)))
+
+    global_frame = ttk.LabelFrame(win, text="Global Layout")
+    global_frame.grid(row=1, column=0, columnspan=2, padx=8, pady=8, sticky="we")
+
+    auto_chk = ttk.Checkbutton(global_frame, text="Automatic layout (tight_layout)", variable=auto_var)
+    auto_chk.grid(row=0, column=0, columnspan=2, padx=8, pady=6, sticky="w")
+    constr_chk = ttk.Checkbutton(global_frame, text="Use constrained layout", variable=constr_var)
+    constr_chk.grid(row=1, column=0, columnspan=2, padx=8, pady=4, sticky="w")
+
+    ttk.Label(global_frame, text="Plot width (inches):").grid(row=2, column=0, padx=8, pady=6, sticky="e")
+    pw_entry = ttk.Entry(global_frame, textvariable=plot_width_var, width=10)
+    pw_entry.grid(row=2, column=1, padx=8, pady=6, sticky="w")
+
+    ttk.Label(global_frame, text="Plot height (inches):").grid(row=3, column=0, padx=8, pady=6, sticky="e")
+    ph_entry = ttk.Entry(global_frame, textvariable=plot_height_var, width=10)
+    ph_entry.grid(row=3, column=1, padx=8, pady=6, sticky="w")
+
+    ttk.Label(global_frame, text="Horizontal spacing (wspace):").grid(row=4, column=0, padx=8, pady=6, sticky="e")
+    wspace_entry = ttk.Entry(global_frame, textvariable=wspace_var, width=10)
+    wspace_entry.grid(row=4, column=1, padx=8, pady=6, sticky="w")
+
+    ttk.Label(global_frame, text="Vertical spacing (hspace):").grid(row=5, column=0, padx=8, pady=6, sticky="e")
+    hspace_entry = ttk.Entry(global_frame, textvariable=hspace_var, width=10)
+    hspace_entry.grid(row=5, column=1, padx=8, pady=6, sticky="w")
+
+    ttk.Label(global_frame, text="Left margin:").grid(row=6, column=0, padx=8, pady=6, sticky="e")
+    left_entry = ttk.Entry(global_frame, textvariable=left_var, width=10)
+    left_entry.grid(row=6, column=1, padx=8, pady=6, sticky="w")
+
+    ttk.Label(global_frame, text="Right margin:").grid(row=7, column=0, padx=8, pady=6, sticky="e")
+    right_entry = ttk.Entry(global_frame, textvariable=right_var, width=10)
+    right_entry.grid(row=7, column=1, padx=8, pady=6, sticky="w")
+
+    ttk.Label(global_frame, text="Top margin:").grid(row=8, column=0, padx=8, pady=6, sticky="e")
+    top_entry = ttk.Entry(global_frame, textvariable=top_var, width=10)
+    top_entry.grid(row=8, column=1, padx=8, pady=6, sticky="w")
+
+    ttk.Label(global_frame, text="Bottom margin:").grid(row=9, column=0, padx=8, pady=6, sticky="e")
+    bottom_entry = ttk.Entry(global_frame, textvariable=bottom_var, width=10)
+    bottom_entry.grid(row=9, column=1, padx=8, pady=6, sticky="w")
+
+    # Per-subplot settings widgets
+    per_frame = ttk.LabelFrame(win, text="Per-Subplot Overrides")
+    per_frame.grid(row=2, column=0, columnspan=2, padx=8, pady=8, sticky="we")
+
+    height_ratio_var = tk.StringVar(value="1.0")
+    width_ratio_var = tk.StringVar(value="1.0")
+    pad_left_var = tk.StringVar(value="0.0")
+    pad_right_var = tk.StringVar(value="0.0")
+    pad_top_var = tk.StringVar(value="0.0")
+    pad_bottom_var = tk.StringVar(value="0.0")
+
+    ttk.Label(per_frame, text="Height ratio (row):").grid(row=0, column=0, padx=8, pady=6, sticky="e")
+    hr_entry = ttk.Entry(per_frame, textvariable=height_ratio_var, width=10)
+    hr_entry.grid(row=0, column=1, padx=8, pady=6, sticky="w")
+
+    ttk.Label(per_frame, text="Width ratio (column):").grid(row=1, column=0, padx=8, pady=6, sticky="e")
+    wr_entry = ttk.Entry(per_frame, textvariable=width_ratio_var, width=10)
+    wr_entry.grid(row=1, column=1, padx=8, pady=6, sticky="w")
+
+    ttk.Label(per_frame, text="Pad left (0..1):").grid(row=2, column=0, padx=8, pady=6, sticky="e")
+    pl_entry = ttk.Entry(per_frame, textvariable=pad_left_var, width=10)
+    pl_entry.grid(row=2, column=1, padx=8, pady=6, sticky="w")
+
+    ttk.Label(per_frame, text="Pad right (0..1):").grid(row=3, column=0, padx=8, pady=6, sticky="e")
+    pr_entry = ttk.Entry(per_frame, textvariable=pad_right_var, width=10)
+    pr_entry.grid(row=3, column=1, padx=8, pady=6, sticky="w")
+
+    ttk.Label(per_frame, text="Pad top (0..1):").grid(row=4, column=0, padx=8, pady=6, sticky="e")
+    pt_entry = ttk.Entry(per_frame, textvariable=pad_top_var, width=10)
+    pt_entry.grid(row=4, column=1, padx=8, pady=6, sticky="w")
+
+    ttk.Label(per_frame, text="Pad bottom (0..1):").grid(row=5, column=0, padx=8, pady=6, sticky="e")
+    pb_entry = ttk.Entry(per_frame, textvariable=pad_bottom_var, width=10)
+    pb_entry.grid(row=5, column=1, padx=8, pady=6, sticky="w")
+
+    def update_fields(*args):
+        tgt = target_var.get()
+        is_all = (tgt == "All subplots")
+        # Show/hide frames accordingly
+        try:
+            global_frame.configure(state=("normal"))
+            per_frame.configure(state=("normal"))
+        except Exception:
+            pass
+        for w in (auto_chk, constr_chk, pw_entry, ph_entry, wspace_entry, hspace_entry, left_entry, right_entry, top_entry, bottom_entry):
+            try:
+                w.configure(state=(tk.NORMAL if is_all else tk.DISABLED))
+            except Exception:
+                pass
+        for w in (hr_entry, wr_entry, pl_entry, pr_entry, pt_entry, pb_entry):
+            try:
+                w.configure(state=(tk.DISABLED if is_all else tk.NORMAL))
+            except Exception:
+                pass
+        # Populate per-subplot overrides if target is individual
+        if not is_all:
+            try:
+                si = int(tgt)
+                ov = subplot_layout_overrides.get(si, {})
+                height_ratio_var.set(str(ov.get('height_ratio', 1.0)))
+                width_ratio_var.set(str(ov.get('width_ratio', 1.0)))
+                pad_left_var.set(str(ov.get('pad_left', 0.0)))
+                pad_right_var.set(str(ov.get('pad_right', 0.0)))
+                pad_top_var.set(str(ov.get('pad_top', 0.0)))
+                pad_bottom_var.set(str(ov.get('pad_bottom', 0.0)))
+            except Exception:
+                pass
+
+    target_combo.bind('<<ComboboxSelected>>', update_fields)
+    update_fields()
+
+    def apply_layout():
+        tgt = target_var.get()
+        if tgt == "All subplots":
+            try:
+                layout_settings["automatic"] = bool(auto_var.get())
+                layout_settings["use_constrained"] = bool(constr_var.get())
+                layout_settings["plot_width"] = float(plot_width_var.get() or layout_settings.get("plot_width", 6.0))
+                layout_settings["plot_height"] = float(plot_height_var.get() or layout_settings.get("plot_height", 4.0))
+                layout_settings["wspace"] = float(wspace_var.get() or layout_settings.get("wspace", 0.25))
+                layout_settings["hspace"] = float(hspace_var.get() or layout_settings.get("hspace", 0.35))
+                layout_settings["left"] = float(left_var.get() or layout_settings.get("left", 0.08))
+                layout_settings["right"] = float(right_var.get() or layout_settings.get("right", 0.96))
+                layout_settings["top"] = float(top_var.get() or layout_settings.get("top", 0.92))
+                layout_settings["bottom"] = float(bottom_var.get() or layout_settings.get("bottom", 0.08))
+            except ValueError:
+                messagebox.showerror("Invalid input", "Please enter valid numeric values.", parent=win)
+                return
+        else:
+            try:
+                si = int(tgt)
+                subplot_layout_overrides[si] = {
+                    'height_ratio': float(height_ratio_var.get() or 1.0),
+                    'width_ratio': float(width_ratio_var.get() or 1.0),
+                    'pad_left': float(pad_left_var.get() or 0.0),
+                    'pad_right': float(pad_right_var.get() or 0.0),
+                    'pad_top': float(pad_top_var.get() or 0.0),
+                    'pad_bottom': float(pad_bottom_var.get() or 0.0)
+                }
+            except ValueError:
+                messagebox.showerror("Invalid input", "Please enter valid numeric values.", parent=win)
+                return
+        reload_plot()
+
+    ttk.Button(win, text="Apply", command=apply_layout).grid(row=3, column=0, columnspan=2, padx=8, pady=12)
 
 def open_presets_manager():
     def list_presets():
@@ -2370,6 +2704,24 @@ def open_presets_manager():
                             continue
                     preset['axis_settings']['subplots'] = subplots
                 axis_settings = preset['axis_settings']
+            if 'layout_settings' in preset:
+                try:
+                    layout_settings.update(preset.get('layout_settings', {}))
+                except Exception:
+                    pass
+            if 'subplot_layout_overrides' in preset:
+                try:
+                    # Convert possible string keys to ints
+                    overrides = {}
+                    for k, v in preset.get('subplot_layout_overrides', {}).items():
+                        try:
+                            overrides[int(k)] = v
+                        except Exception:
+                            pass
+                    subplot_layout_overrides.clear()
+                    subplot_layout_overrides.update(overrides)
+                except Exception:
+                    pass
             if 'plot_title' in preset and title_entry is not None:
                 try:
                     title_entry.delete(0, tk.END)
@@ -2379,15 +2731,15 @@ def open_presets_manager():
             if 'save_settings' in preset:
                 save_settings.update(preset.get('save_settings', {}))
         except Exception as e:
-            messagebox.showerror("Preset Fehler", f"Fehler beim Anwenden des Presets:\n{e}", parent=preset_win)
+            messagebox.showerror("Preset Error", f"Error applying preset:\n{e}", parent=preset_win)
             return
         reload_plot()
-        messagebox.showinfo("Preset geladen", "Preset erfolgreich angewendet.", parent=preset_win)
+        messagebox.showinfo("Preset Loaded", "Preset applied successfully.", parent=preset_win)
 
         print(f"subplot-settings: {subplot_settings}")
 
     def save_current_preset():
-        name = simpledialog.askstring("Preset Name", "Name für das Preset:", parent=preset_win)
+        name = simpledialog.askstring("Preset Name", "Name for the preset:", parent=preset_win)
         if not name:
             return
         filename = f"{name}.json"
@@ -2400,20 +2752,22 @@ def open_presets_manager():
             "markers": markers,
             "axis_settings": axis_settings,
             "plot_title": title_entry.get() if title_entry else "",
-            "save_settings": save_settings
+            "save_settings": save_settings,
+            "layout_settings": layout_settings,
+            "subplot_layout_overrides": subplot_layout_overrides
         }
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(preset, f, indent=2, ensure_ascii=False)
             refresh_list()
-            messagebox.showinfo("Gespeichert", f"Preset gespeichert: {filename}", parent=preset_win)
+            messagebox.showinfo("Saved", f"Preset saved: {filename}", parent=preset_win)
         except Exception as e:
-            messagebox.showerror("Fehler", f"Fehler beim Speichern des Presets:\n{e}", parent=preset_win)
+            messagebox.showerror("Error", f"Error saving preset:\n{e}", parent=preset_win)
 
     def load_selected_preset():
         sel = preset_list.curselection()
         if not sel:
-            messagebox.showwarning("Auswahl", "Bitte ein Preset auswählen.", parent=preset_win)
+            messagebox.showwarning("Selection", "Please select a preset.", parent=preset_win)
             return
         filename = preset_list.get(sel[0])
         path = os.path.join(PRESETS_DIR, filename)
@@ -2422,20 +2776,20 @@ def open_presets_manager():
                 preset = json.load(f)
             apply_preset_data(preset)
         except Exception as e:
-            messagebox.showerror("Fehler", f"Fehler beim Laden des Presets:\n{e}", parent=preset_win)
+            messagebox.showerror("Error", f"Error loading preset:\n{e}", parent=preset_win)
 
     def delete_selected_preset():
         sel = preset_list.curselection()
         if not sel:
-            messagebox.showwarning("Auswahl", "Bitte ein Preset auswählen.", parent=preset_win)
+            messagebox.showwarning("Selection", "Please select a preset.", parent=preset_win)
             return
         filename = preset_list.get(sel[0])
         path = os.path.join(PRESETS_DIR, filename)
-        if messagebox.askyesno("Löschen bestätigen", f"Möchtest du '{filename}' löschen?", parent=preset_win):
+        if messagebox.askyesno("Confirm Delete", f"Do you want to delete '{filename}'?", parent=preset_win):
             try:
                 os.remove(path)
             except Exception as e:
-                messagebox.showerror("Fehler", f"Fehler beim Löschen:\n{e}", parent=preset_win)
+                messagebox.showerror("Error", f"Error deleting:\n{e}", parent=preset_win)
             refresh_list()
 
     def import_preset():
@@ -2446,21 +2800,21 @@ def open_presets_manager():
             with open(fp, "r", encoding="utf-8") as f:
                 preset = json.load(f)
             # ask for name under presets dir
-            name = simpledialog.askstring("Importieren als", "Name für das Preset:", parent=preset_win)
+            name = simpledialog.askstring("Import As", "Name for the preset:", parent=preset_win)
             if not name:
                 return
             out = os.path.join(PRESETS_DIR, f"{name}.json")
             with open(out, "w", encoding="utf-8") as f:
                 json.dump(preset, f, indent=2, ensure_ascii=False)
             refresh_list()
-            messagebox.showinfo("Importiert", f"Preset importiert als {name}.json", parent=preset_win)
+            messagebox.showinfo("Imported", f"Preset imported as {name}.json", parent=preset_win)
         except Exception as e:
-            messagebox.showerror("Fehler", f"Import fehlgeschlagen:\n{e}", parent=preset_win)
+            messagebox.showerror("Error", f"Import failed:\n{e}", parent=preset_win)
 
     def export_selected_preset():
         sel = preset_list.curselection()
         if not sel:
-            messagebox.showwarning("Auswahl", "Bitte ein Preset auswählen.", parent=preset_win)
+            messagebox.showwarning("Selection", "Please select a preset.", parent=preset_win)
             return
         filename = preset_list.get(sel[0])
         src = os.path.join(PRESETS_DIR, filename)
@@ -2470,9 +2824,9 @@ def open_presets_manager():
         try:
             with open(src, "r", encoding="utf-8") as fsrc, open(dest, "w", encoding="utf-8") as fdst:
                 fdst.write(fsrc.read())
-            messagebox.showinfo("Exportiert", f"Preset exportiert nach:\n{dest}", parent=preset_win)
+            messagebox.showinfo("Exported", f"Preset exported to:\n{dest}", parent=preset_win)
         except Exception as e:
-            messagebox.showerror("Fehler", f"Export fehlgeschlagen:\n{e}", parent=preset_win)
+            messagebox.showerror("Error", f"Export failed:\n{e}", parent=preset_win)
 
     preset_win = tk.Toplevel(root)
     preset_win.title("Presets Manager")
@@ -2493,7 +2847,198 @@ def open_presets_manager():
 
 # Funktion für das Hilfe-Menü
 def show_help():
-    messagebox.showinfo("Hilfe", "Dies ist der CSV Plotter.\n\nLaden Sie eine CSV-Datei und verwenden Sie die verfügbaren Einstellungen, um den Plot anzupassen.")
+    # Build bilingual help content and a toggleable help window
+    HELP_DE = (
+        "CSV Plotter – Hilfe\n"
+        "\n"
+        "Überblick:\n"
+        "Dieser Plotter lädt CSV-Dateien und bietet umfangreiche Optionen zur Darstellung und Formatierung von Daten in mehreren Subplots.\n"
+        "\n"
+        "Inhalt:\n"
+        "1) Einstieg\n"
+        "2) Subplot Layout\n"
+        "3) Achsen-Einstellungen\n"
+        "4) Grid-Einstellungen\n"
+        "5) Legenden-Einstellungen\n"
+        "6) Zoom/Inserts\n"
+        "7) Marker\n"
+        "8) Plot-Layout (Größe/Abstände)\n"
+        "9) Presets\n"
+        "10) Speichern\n"
+        "\n"
+        "1) Einstieg:\n"
+        "- Plot Manager: Dateien hinzufügen (CSV), jedem Plot einen Subplot und die Achse (primär/sekundär) zuweisen.\n"
+        "- Reload Plot: Zeichnet den Plot neu, um Änderungen zu übernehmen.\n"
+        "- Plot Title: Titel des gesamten Plots setzen.\n"
+        "\n"
+        "2) Subplot Layout:\n"
+        "- Layout Settings: Reihe/Spalte festlegen (z.B. 2x2). Für jeden Subplot Titel, X-/Y-Label und optional ein sekundäres Y-Label setzen.\n"
+        "- Sekundäre Achse: Wird automatisch erzeugt, wenn ein Eintrag im Plot Manager den y-Axis-Typ 'secondary' verwendet.\n"
+        "\n"
+        "3) Achsen-Einstellungen (Axis):\n"
+        "- Ziel-Subplot wählen.\n"
+        "- Achs-Typen: X/Y/Y2 jeweils linear oder log.\n"
+        "- Bereiche: X-Min/-Max und Y-Min/-Max sowie Y2-Min/-Max setzen; Achsen invertieren (X/Y/Y2).\n"
+        "- Minor Ticks: Ein-/Ausschalten.\n"
+        "- EU-Format: Komma als Dezimaltrennzeichen für Achsenticks aktivieren.\n"
+        "- Wissenschaftliche Notation: Pro Subplot separat für X, Y und Y2 wählen (z.B. 1e3 statt 1000).\n"
+        "- Einheiten/Skalierung: X/Y/Y2 Unit Label oder Scale Factor eingeben. Unterstützt SI-Präfixe (z.B. m, k, M).\n"
+        "\n"
+        "4) Grid-Einstellungen:\n"
+        "- Sichtbarkeit: Grid anzeigen/verbergen.\n"
+        "- Farbe/Strichstärke: Für das normale Grid einstellen.\n"
+        "- Ticks: Links (Y), unten (X) und rechts (Y2) separat ein-/ausblenden.\n"
+        "- Minor Grid: Eigene Farbe/Strichstärke; Option 'gleich wie Major-Grid'.\n"
+        "- 'Use Subplot 1 for all': Übernimmt die Sichtbarkeits- und Tick-Einstellungen von Subplot 1 für alle.\n"
+        "- Reset: Setzt alle Grid- und Minor-Grid-Werte global und pro Subplot auf Standard zurück.\n"
+        "\n"
+        "5) Legenden-Einstellungen:\n"
+        "- Schriftgröße, Position, Rahmen, Transparenz und Spaltenzahl einstellen.\n"
+        "- Sichtbarkeit der Legende pro Subplot.\n"
+        "- 'All in subplot 1': Alle Legenden in Subplot 1 zusammenfassen.\n"
+        "- 'Show marker in legend': Marker in der Legende anzeigen (inkl. automatischer oder benutzerdefinierter Namen).\n"
+        "\n"
+        "6) Zoom/Inserts:\n"
+        "- Zoom Settings: Inset-Achsen pro Subplot hinzufügen.\n"
+        "- Größe (Breite/Höhe), Position (loc) und Rand (border pad) definieren.\n"
+        "- Bereich (x/y) festlegen und Verbinder (mark_inset) setzen.\n"
+        "- Wahl der Achse (primär/sekundär) für den Inset-Plot.\n"
+        "\n"
+        "7) Marker:\n"
+        "- Typen: horizontal, vertical, point, xpoint, ypoint.\n"
+        "- Ziel-Subplot und Achse (primär/sekundär) wählen.\n"
+        "- Farbe setzen.\n"
+        "- Legend Name: 'Auto' (nutzt EU/US und wissenschaftliche Einstellungen) oder 'Custom' mit eigenem Text.\n"
+        "- Bei xpoint/ypoint: zugehörigen Plot im Subplot auswählen.\n"
+        "- Markereinträge lassen sich aus der Liste bearbeiten.\n"
+        "\n"
+        "8) Plot-Layout (Größe/Abstände):\n"
+        "- Global: Automatic (tight_layout) oder Constrained Layout aktivieren.\n"
+        "- Größe: Plotbreite/-höhe (pro Subplot, in Zoll).\n"
+        "- Abstände: wspace (horizontal), hspace (vertikal). Bei Constrained Layout werden diese über Pads gesteuert.\n"
+        "- Ränder: left/right/top/bottom.\n"
+        "- Pro Subplot: Height/Width Ratio sowie innere Pads (links/rechts/oben/unten) über Overrides.\n"
+        "\n"
+        "9) Presets:\n"
+        "- Presets Manager: Aktuelle Einstellungen speichern/laden/löschen; Import/Export von JSON.\n"
+        "- Presets enthalten u.a. Subplots, Axis-, Grid-, Legend-, Zoom-, Marker-, Layout- und Save-Einstellungen.\n"
+        "\n"
+        "10) Speichern:\n"
+        "- Save Plot: Format (PDF/SVG/EPS) und Größe (Zoll) wählen.\n"
+    )
+
+    HELP_EN = (
+        "CSV Plotter – Help\n"
+        "\n"
+        "Overview:\n"
+        "This plotter loads CSV files and provides rich options to visualize and format data across multiple subplots.\n"
+        "\n"
+        "Contents:\n"
+        "1) Getting Started\n"
+        "2) Subplot Layout\n"
+        "3) Axis Settings\n"
+        "4) Grid Settings\n"
+        "5) Legend Settings\n"
+        "6) Zoom/Insets\n"
+        "7) Markers\n"
+        "8) Plot Layout (Size/Spacing)\n"
+        "9) Presets\n"
+        "10) Saving\n"
+        "\n"
+        "1) Getting Started:\n"
+        "- Plot Manager: Add CSV files, assign each plot to a subplot and axis (primary/secondary).\n"
+        "- Reload Plot: Redraw to apply changes.\n"
+        "- Plot Title: Set the overall plot title.\n"
+        "\n"
+        "2) Subplot Layout:\n"
+        "- Layout Settings: Configure rows/columns (e.g., 2x2). For each subplot, set title, X/Y labels, and an optional secondary Y label.\n"
+        "- Secondary axis: Created automatically when a Plot Manager entry uses 'secondary' for the y-axis.\n"
+        "\n"
+        "3) Axis Settings:\n"
+        "- Choose target subplot.\n"
+        "- Axis types: X/Y/Y2 individually linear or log.\n"
+        "- Ranges: Set X/Y/Y2 min/max; invert axes (X/Y/Y2).\n"
+        "- Minor ticks: Toggle on/off.\n"
+        "- EU format: Use comma as decimal separator for tick labels.\n"
+        "- Scientific notation: Per subplot choose for X, Y, and Y2 (e.g., 1e3 vs 1000).\n"
+        "- Units/scale: Enter X/Y/Y2 unit label or scale factor. Supports SI prefixes (e.g., m, k, M).\n"
+        "\n"
+        "4) Grid Settings:\n"
+        "- Visibility: Show/hide grid.\n"
+        "- Color/linewidth: Configure major grid style.\n"
+        "- Ticks: Independently show/hide left (Y), bottom (X), right (Y2).\n"
+        "- Minor grid: Own color/linewidth; option 'same as major'.\n"
+        "- 'Use Subplot 1 for all': Apply Subplot 1 visibility/tick settings to all.\n"
+        "- Reset: Restores all grid and minor grid values globally and per subplot to defaults.\n"
+        "\n"
+        "5) Legend Settings:\n"
+        "- Configure font size, position, frame, transparency, and column count.\n"
+        "- Per-subplot visibility.\n"
+        "- 'All in subplot 1': Aggregate all legends in Subplot 1.\n"
+        "- 'Show marker in legend': Include markers (auto/custom labels).\n"
+        "\n"
+        "6) Zoom/Insets:\n"
+        "- Zoom Settings: Add inset axes per subplot.\n"
+        "- Set size (width/height), position (loc), and border pad.\n"
+        "- Define ranges (x/y) and add connectors (mark_inset).\n"
+        "- Choose primary/secondary axis for inset plotting.\n"
+        "\n"
+        "7) Markers:\n"
+        "- Types: horizontal, vertical, point, xpoint, ypoint.\n"
+        "- Select target subplot and axis (primary/secondary).\n"
+        "- Choose color.\n"
+        "- Legend name: 'Auto' (respects EU/US and scientific toggles) or 'Custom' text.\n"
+        "- For xpoint/ypoint: select the related plot within the subplot.\n"
+        "- Edit marker entries from the list.\n"
+        "\n"
+        "8) Plot Layout (Size/Spacing):\n"
+        "- Global: Enable Automatic (tight_layout) or Constrained Layout.\n"
+        "- Size: Plot width/height (per subplot, inches).\n"
+        "- Spacing: wspace (horizontal), hspace (vertical). Constrained layout uses pads to control spacing.\n"
+        "- Margins: left/right/top/bottom.\n"
+        "- Per subplot: Height/Width ratios and inner pads (left/right/top/bottom) via overrides.\n"
+        "\n"
+        "9) Presets:\n"
+        "- Presets Manager: Save/load/delete; import/export JSON.\n"
+        "- Presets include subplots, axis, grid, legend, zoom, markers, layout, and save settings.\n"
+        "\n"
+        "10) Saving:\n"
+        "- Save Plot: Choose format (PDF/SVG/EPS) and size (inches).\n"
+    )
+
+    help_win = tk.Toplevel(root)
+    help_win.title("Help / Hilfe")
+    help_win.geometry("800x700")
+
+    lang_var = tk.StringVar(value="DE")
+
+    def render_content():
+        text.configure(state=tk.NORMAL)
+        text.delete("1.0", tk.END)
+        text.insert(tk.END, HELP_DE if lang_var.get() == "DE" else HELP_EN)
+        text.configure(state=tk.DISABLED)
+
+    top_frame = ttk.Frame(help_win)
+    top_frame.pack(fill="x", padx=8, pady=6)
+
+    ttk.Label(top_frame, text="Language / Sprache:").pack(side=tk.LEFT)
+    def toggle_lang():
+        lang_var.set("EN" if lang_var.get() == "DE" else "DE")
+        toggle_btn.configure(text=("Deutsch" if lang_var.get() == "EN" else "English"))
+        render_content()
+
+    toggle_btn = ttk.Button(top_frame, text="English", command=toggle_lang)
+    toggle_btn.pack(side=tk.LEFT, padx=8)
+
+    text_frame = ttk.Frame(help_win)
+    text_frame.pack(fill="both", expand=True, padx=8, pady=6)
+    text = tk.Text(text_frame, wrap=tk.WORD)
+    text.pack(side=tk.LEFT, fill="both", expand=True)
+    scroll = ttk.Scrollbar(text_frame, orient="vertical", command=text.yview)
+    scroll.pack(side=tk.RIGHT, fill="y")
+    text.configure(yscrollcommand=scroll.set)
+
+    render_content()
 
 
 root = tk.Tk()
@@ -2503,9 +3048,9 @@ root.title("CSV Plotter")
 menubar = tk.Menu(root)
 
 # Hilfe-Menü mit Fragezeichen
-help_menu = tk.Menu(menubar, tearoff=0)
-help_menu.add_command(label="Über", command=show_help)
-menubar.add_cascade(label="?", menu=help_menu)
+#help_menu = tk.Menu(menubar, tearoff=0)
+#help_menu.add_command(label="Help", command=show_help)
+menubar.add_cascade(label="?", command=show_help)
 
 # Menüleiste dem Fenster zuweisen
 root.config(menu=menubar)
@@ -2520,6 +3065,10 @@ title_entry.grid(row=0, column=1)
 # New Presets button (disabled initially; enabled by plot_manager)
 presets_button = tk.Button(root, text="Presets", command=open_presets_manager, state=tk.NORMAL, padx=width_pad_root)
 presets_button.grid(row=1, column=1)
+
+# New Plot Layout button
+layout_button = tk.Button(root, text="Plot Layout", command=open_plot_layout_settings, state=tk.DISABLED, padx=width_pad_root)
+layout_button.grid(row=1, column=0)
 
 tk.Button(root, text="Plot Manager", command=plot_manager, padx=width_pad_root).grid(row=2, column=0)
 reload_button = tk.Button(root, text="Reload Plot", command=reload_plot, state=tk.DISABLED, padx=width_pad_root)
