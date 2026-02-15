@@ -4,22 +4,16 @@
 ## open (top - most important, bottom - least important)
 #--------------------------------------------------------------------------------------
 
-- save plot -> x-Label not completly visible
-- vertical distance between plots sometimes to small 
-- distance between title and first plot sometimes to large
 - generated svg has different sizes even with the same settings (only different plot)
 - add feature: minor_ticks on/off if ticks in Grid-settings disabled
 - change language to english (only GUI) 
+- different line styles/width in Plotmanager 
 - fast select in plotmanager -> 3 Plots on subplot 1 but only one is plotted -> fast switching between plots 
 - marker in zoom insert (checkbox in zoom-settings)
-- change color and size of minor-grid
-- pre-defined color pallets 
 - fit window size dynamically to display resolution (necessary?)
 - change scale in insert (linear/log)
 - set all buttons in root window to same size
-- add help-feature 
 - error handling for wrong plot-label (LaTeX error -> plotter is stuck)
-- language of all comments/messages in english
 
 #--------------------------------------------------------------------------------------
 ## done
@@ -29,3 +23,10 @@
 + grid on log-scale wrong (no small ticks)                      - 27.10.2025
 + add feature to remove ticks on x-axis completly               - 27.10.2025
 + remove 4 subplot limit in Plotmanager (append dynamically)    - 27.10.2025
++ pre-defined color pallets                                     - 15.02.2026
++ change color and size of minor-grid                           - 15.02.2026
++ automatic unit-prefix detection and scaling                   - 15.02.2026
++ switch between us/eu formatting                               - 15.02.2026
++ constrained layout feature                                    - 15.02.2026              
++ help featuer (english/german)                                 - 15.02.2026
++ all text/buttons in english                                   - 15.02.2026
