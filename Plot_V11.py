@@ -70,7 +70,16 @@ subplot_settings = {
     }
 }
 
-grid_settings = {'use_subplot1_for_all': True}
+grid_settings = {'use_subplot1_for_all': True,
+                 'visible': True,
+                 'color': 'gray',
+                 'linewidth': 0.5,
+                 'ticks_left': True,
+                 'ticks_bottom': True,
+                 'ticks_right': True,
+                 'minor_color': 'lightgray',
+                 'minor_linewidth': 0.5,
+                 'minor_same_as_major': True}
 
 # Neuer globaler Default für Save-Dialog-Werte und Presets-Ordner
 save_settings = {
@@ -310,14 +319,39 @@ def reload_plot():
             except Exception:
                 pass
             
+            # Minor grid styling from grid settings / subplot settings
+            try:
+                if grid_settings.get('use_subplot1_for_all', False):
+                    src_cfg = subplot_settings['subplots'].get(1, {})
+                else:
+                    src_cfg = subplot_settings['subplots'].get(subplot_num, {})
+
+                major_color = src_cfg.get('grid_color', grid_settings.get('color', 'gray'))
+                major_lw = src_cfg.get('grid_linewidth', grid_settings.get('linewidth', 0.5))
+                minor_same = src_cfg.get('minor_same_as_major', grid_settings.get('minor_same_as_major', True))
+                minor_color = src_cfg.get('minor_grid_color', grid_settings.get('minor_color', 'lightgray'))
+                minor_lw = src_cfg.get('minor_grid_linewidth', grid_settings.get('minor_linewidth', 0.5))
+                if minor_same:
+                    minor_color = major_color
+                    minor_lw = major_lw
+            except Exception:
+                minor_color = grid_settings.get('minor_color', 'lightgray')
+                minor_lw = grid_settings.get('minor_linewidth', 0.5)
+
             if subplot_axis_settings.get("auto_ticks", True):
-                print(f"set minor ticks")
-                # Automatische Ticks: Major + Minor anzeigen
+                # Automatische Ticks: Minor anzeigen und mit Stil zeichnen
                 ax.minorticks_on()
-                ax.grid(True, which='minor')
+                try:
+                    ax.grid(True, which='minor', color=minor_color, linewidth=minor_lw)
+                except Exception:
+                    ax.grid(True, which='minor')
             else:
-                # Nur Hauptlinien anzeigen
+                # Minor-Ticks aus
                 ax.minorticks_off()
+                try:
+                    ax.grid(False, which='minor')
+                except Exception:
+                    pass
 
             try:
                 x_min = subplot_axis_settings.get("x_min", "")
@@ -417,21 +451,45 @@ def reload_plot():
         try:
             if marker['type'] == 'horizontal' and 'y' in marker:
                 yval = marker['y'] * (y_scale_secondary if target_yaxis == 'secondary' else y_scale_primary)
-                label = f"y={yval}" if legend_settings.get('show_markers', True) else ""
+                auto_label = f"y={yval}"
+                label = ""
+                if legend_settings.get('show_markers', True):
+                    if marker.get('legend_mode', 'auto') == 'custom' and marker.get('legend_label'):
+                        label = marker.get('legend_label', '')
+                    else:
+                        label = auto_label
                 axis_for_marker.axhline(y=yval, color=marker['color'], linestyle='--', label=label)
             elif marker['type'] == 'vertical' and 'x' in marker:
                 xval = marker['x'] * x_scale
-                label = f"x={xval}" if legend_settings.get('show_markers', True) else ""
+                auto_label = f"x={xval}"
+                label = ""
+                if legend_settings.get('show_markers', True):
+                    if marker.get('legend_mode', 'auto') == 'custom' and marker.get('legend_label'):
+                        label = marker.get('legend_label', '')
+                    else:
+                        label = auto_label
                 axis_for_marker.axvline(x=xval, color=marker['color'], linestyle='--', label=label)
             elif marker['type'] == 'point' and 'x' in marker and 'y' in marker:
                 xval = marker['x'] * x_scale
                 yval = marker['y'] * (y_scale_secondary if target_yaxis == 'secondary' else y_scale_primary)
-                label = f"({xval}, {yval})" if legend_settings.get('show_markers', True) else ""
+                auto_label = f"({xval}, {yval})"
+                label = ""
+                if legend_settings.get('show_markers', True):
+                    if marker.get('legend_mode', 'auto') == 'custom' and marker.get('legend_label'):
+                        label = marker.get('legend_label', '')
+                    else:
+                        label = auto_label
                 axis_for_marker.plot(xval, yval, marker='o', color=marker['color'], label=label)
             elif marker['type'] in ('xpoint', 'ypoint') and 'x' in marker and 'y' in marker:
                 xval = marker['x'] * x_scale
                 yval = marker['y'] * (y_scale_secondary if target_yaxis == 'secondary' else y_scale_primary)
-                label = f"({xval:.2e}, {yval:.2e})" if legend_settings.get('show_markers', True) else ""
+                auto_label = f"({xval:.2e}, {yval:.2e})"
+                label = ""
+                if legend_settings.get('show_markers', True):
+                    if marker.get('legend_mode', 'auto') == 'custom' and marker.get('legend_label'):
+                        label = marker.get('legend_label', '')
+                    else:
+                        label = auto_label
                 axis_for_marker.plot(xval, yval, marker='o', color=marker['color'], label=label)
         except Exception:
             print("failed to set marker")
@@ -762,6 +820,9 @@ def open_subplot_settings():
                 'grid': existing.get('grid', True),
                 'grid_color': existing.get('grid_color', 'gray'),
                 'grid_linewidth': existing.get('grid_linewidth', 0.5),
+                'minor_same_as_major': existing.get('minor_same_as_major', True),
+                'minor_grid_color': existing.get('minor_grid_color', 'lightgray'),
+                'minor_grid_linewidth': existing.get('minor_grid_linewidth', 0.5),
                 'ticks_left': existing.get('ticks_left', True),
                 'ticks_bottom': existing.get('ticks_bottom', True),
                 'ticks_right': existing.get('ticks_right', True),
@@ -1126,6 +1187,13 @@ def open_grid_settings():
         grid_window.lift()
         grid_window.focus_force()
 
+    def choose_minor_color():
+        color_code = colorchooser.askcolor(title="Choose Minor Grid Color", parent=grid_window)
+        if color_code[1]:
+            minor_color_display.config(bg=color_code[1])
+        grid_window.lift()
+        grid_window.focus_force()
+
     def update_fields_grid(*args):
         target = target_var.get()
         try:
@@ -1138,6 +1206,9 @@ def open_grid_settings():
             ticks_left_var.set(subcfg.get('ticks_left', grid_settings.get('ticks_left', True)))
             ticks_bottom_var.set(subcfg.get('ticks_bottom', grid_settings.get('ticks_bottom', True)))
             ticks_right_var.set(subcfg.get('ticks_right', grid_settings.get('ticks_right', True)))
+            minor_same_var.set(subcfg.get('minor_same_as_major', grid_settings.get('minor_same_as_major', True)))
+            minor_color_display.config(bg=subcfg.get('minor_grid_color', grid_settings.get('minor_color', 'lightgray')))
+            minor_width_slider.set(subcfg.get('minor_grid_linewidth', grid_settings.get('minor_linewidth', 0.5)))
         except Exception:
             grid_var.set(grid_settings.get('visible', True))
             grid_color_display.config(bg=grid_settings.get('color', 'gray'))
@@ -1145,9 +1216,12 @@ def open_grid_settings():
             ticks_left_var.set(grid_settings.get('ticks_left', True))
             ticks_bottom_var.set(grid_settings.get('ticks_bottom', True))
             ticks_right_var.set(grid_settings.get('ticks_right', True))
+            minor_same_var.set(grid_settings.get('minor_same_as_major', True))
+            minor_color_display.config(bg=grid_settings.get('minor_color', 'lightgray'))
+            minor_width_slider.set(grid_settings.get('minor_linewidth', 0.5))
 
         if target == "1":
-            use_for_all_chk.grid(row=7, column=0, columnspan=3, sticky="w", padx=5, pady=2)
+            use_for_all_chk.grid(row=11, column=0, columnspan=3, sticky="w", padx=5, pady=2)
             use_for_all_var.set(grid_settings.get('use_subplot1_for_all', False))
         else:
             use_for_all_chk.grid_remove()
@@ -1160,6 +1234,9 @@ def open_grid_settings():
         ticks_left = ticks_left_var.get()
         ticks_bottom = ticks_bottom_var.get()
         ticks_right = ticks_right_var.get()
+        minor_same = minor_same_var.get()
+        minor_color = minor_color_display.cget("bg")
+        minor_linewidth = minor_width_slider.get()
 
         try:
             si = int(target)
@@ -1182,6 +1259,9 @@ def open_grid_settings():
             subcfg['ticks_left'] = bool(ticks_left)
             subcfg['ticks_bottom'] = bool(ticks_bottom)
             subcfg['ticks_right'] = bool(ticks_right)
+            subcfg['minor_same_as_major'] = bool(minor_same)
+            subcfg['minor_grid_color'] = color if minor_same else minor_color
+            subcfg['minor_grid_linewidth'] = float(linewidth if minor_same else minor_linewidth)
         except Exception:
             grid_settings['visible'] = visible
             grid_settings['color'] = color
@@ -1189,6 +1269,9 @@ def open_grid_settings():
             grid_settings['ticks_left'] = bool(ticks_left)
             grid_settings['ticks_bottom'] = bool(ticks_bottom)
             grid_settings['ticks_right'] = bool(ticks_right)
+            grid_settings['minor_same_as_major'] = bool(minor_same)
+            grid_settings['minor_color'] = color if minor_same else minor_color
+            grid_settings['minor_linewidth'] = float(linewidth if minor_same else minor_linewidth)
 
         if target == "1":
             grid_settings['use_subplot1_for_all'] = bool(use_for_all_var.get())
@@ -1204,6 +1287,9 @@ def open_grid_settings():
             'ticks_left': True,
             'ticks_bottom': True,
             'ticks_right': True,
+            'minor_color': 'lightgray',
+            'minor_linewidth': 0.5,
+            'minor_same_as_major': True,
             'use_subplot1_for_all': False
         }
 
@@ -1229,6 +1315,9 @@ def open_grid_settings():
         ticks_bottom_var.set(defaults['ticks_bottom'])
         ticks_right_var.set(defaults['ticks_right'])
         use_for_all_var.set(defaults['use_subplot1_for_all'])
+        minor_same_var.set(defaults['minor_same_as_major'])
+        minor_color_display.config(bg=defaults['minor_color'])
+        minor_width_slider.set(defaults['minor_linewidth'])
 
         # refresh fields and redraw plot
         update_fields_grid()
@@ -1275,14 +1364,29 @@ def open_grid_settings():
     ticks_right_var = tk.BooleanVar(value=grid_settings.get('ticks_right', True))
     tk.Checkbutton(grid_window, text="Right (Secondary Y)", variable=ticks_right_var).grid(row=6, column=1, padx=5, sticky="w")
 
+    # Minor grid controls
+    tk.Label(grid_window, text="Minor Grid:").grid(row=7, column=0, sticky="w")
+    minor_same_var = tk.BooleanVar(value=grid_settings.get('minor_same_as_major', True))
+    tk.Checkbutton(grid_window, text="Same as major", variable=minor_same_var).grid(row=7, column=1, padx=5, sticky="w")
+
+    tk.Label(grid_window, text="Minor Color:").grid(row=8, column=0, sticky="w")
+    minor_color_display = tk.Label(grid_window, bg=grid_settings.get('minor_color', 'lightgray'), width=10)
+    minor_color_display.grid(row=8, column=1)
+    tk.Button(grid_window, text="Choose Minor Color", command=choose_minor_color).grid(row=8, column=2)
+
+    tk.Label(grid_window, text="Minor Line Width:").grid(row=9, column=0, sticky="w")
+    minor_width_slider = tk.Scale(grid_window, from_=0.1, to=5.0, resolution=0.1, orient="horizontal")
+    minor_width_slider.set(grid_settings.get('minor_linewidth', 0.5))
+    minor_width_slider.grid(row=9, column=1, columnspan=2, sticky="we")
+
 
     # "Use Subplot 1 for all" checkbox (created once, shown only when Subplot 1 selected)
     use_for_all_var = tk.BooleanVar(value=grid_settings.get('use_subplot1_for_all', False))
     use_for_all_chk = tk.Checkbutton(grid_window, text="Use Subplot 1 for all", variable=use_for_all_var)
 
     # Buttons: Reset + Apply
-    tk.Button(grid_window, text="Reset", command=reset_grid_defaults).grid(row=8, column=0, padx=5, pady=10)
-    tk.Button(grid_window, text="Apply", command=apply_grid_settings).grid(row=8, column=1, columnspan=2, pady=10)
+    tk.Button(grid_window, text="Reset", command=reset_grid_defaults).grid(row=13, column=0, padx=5, pady=10)
+    tk.Button(grid_window, text="Apply", command=apply_grid_settings).grid(row=13, column=1, columnspan=2, pady=10)
 
     # initialize fields according to current selection
     update_fields_grid()
@@ -1383,6 +1487,24 @@ def set_marker():
                                         parent=marker_window)[1] or color_display.cget("bg")
              )).grid(row=4, column=2)
 
+    # Legend label mode: auto or custom
+    tk.Label(marker_window, text="Legend Name:").grid(row=5, column=0, sticky="w")
+    legend_mode_var = tk.StringVar(value="auto")
+    tk.Radiobutton(marker_window, text="Auto", variable=legend_mode_var, value="auto", command=lambda: update_legend_fields()).grid(row=5, column=1, sticky="w")
+    tk.Radiobutton(marker_window, text="Custom", variable=legend_mode_var, value="custom", command=lambda: update_legend_fields()).grid(row=5, column=2, sticky="w")
+
+    tk.Label(marker_window, text="Custom Text:").grid(row=6, column=0, sticky="w")
+    custom_text_var = tk.StringVar(value="")
+    custom_text_entry = tk.Entry(marker_window, textvariable=custom_text_var, width=30)
+    custom_text_entry.grid(row=6, column=1, columnspan=2, sticky="ew")
+
+    def update_legend_fields():
+        mode = legend_mode_var.get()
+        if mode == "custom":
+            custom_text_entry.configure(state=tk.NORMAL)
+        else:
+            custom_text_entry.configure(state=tk.DISABLED)
+
     
     def edit_selected_marker(event):
         selection = marker_list.curselection()
@@ -1421,6 +1543,17 @@ def set_marker():
             except Exception:
                 pass
 
+            # legend mode and custom text
+            try:
+                legend_mode_var.set(marker.get('legend_mode', 'auto'))
+            except Exception:
+                legend_mode_var.set('auto')
+            try:
+                custom_text_var.set(marker.get('legend_label', '') or '')
+            except Exception:
+                custom_text_var.set('')
+            update_legend_fields()
+
             # remember index for overwrite on save
             marker_window.selected_index = index
             status_label.config(text=f"Bearbeite Eintrag #{index + 1}")
@@ -1430,7 +1563,6 @@ def set_marker():
         subplot_num = int(subplot_select_var.get())
         axis = source_type_var.get()
         color = color_display.cget("bg")
-
         try:
             if marker_type in ["xpoint", "ypoint"]:
                 if not plot_select_var.get() or plot_select_var.get() == "No plots in subplot":
@@ -1470,7 +1602,9 @@ def set_marker():
                 'color': color,
                 'y-axis': axis,
                 'subplot': subplot_num,
-                'source_plot': plot_select_var.get() if marker_type in ["xpoint", "ypoint"] else None
+                'source_plot': plot_select_var.get() if marker_type in ["xpoint", "ypoint"] else None,
+                'legend_mode': legend_mode_var.get(),
+                'legend_label': custom_text_var.get().strip()
             }
 
             if hasattr(marker_window, 'selected_index'):
@@ -1502,9 +1636,9 @@ def set_marker():
             marker_list.insert(tk.END, desc)
 
     # Marker list
-    tk.Label(marker_window, text="Current Markers:").grid(row=6, column=0, columnspan=2, sticky="w")
+    tk.Label(marker_window, text="Current Markers:").grid(row=7, column=0, columnspan=2, sticky="w")
     marker_list = tk.Listbox(marker_window, width=50, height=10)
-    marker_list.grid(row=7, column=0, columnspan=3, sticky="nsew", padx=5, pady=5)
+    marker_list.grid(row=8, column=0, columnspan=3, sticky="nsew", padx=5, pady=5)
     marker_list.bind("<Double-Button-1>", edit_selected_marker)
 
     
@@ -1513,12 +1647,12 @@ def set_marker():
 
 
     # Buttons
-    tk.Button(marker_window, text="Add Marker", command=add_marker).grid(row=8, column=0, pady=10)
+    tk.Button(marker_window, text="Add Marker", command=add_marker).grid(row=9, column=0, pady=10)
     tk.Button(marker_window, text="Delete Selected", 
-             command=lambda: delete_selected_marker(marker_list)).grid(row=8, column=1)
+             command=lambda: delete_selected_marker(marker_list)).grid(row=9, column=1)
 
     status_label = tk.Label(marker_window, text="Kein Eintrag ausgewählt", fg="blue")
-    status_label.grid(row=9, column=0, columnspan=3, sticky="w", pady=(5, 0))
+    status_label.grid(row=10, column=0, columnspan=3, sticky="w", pady=(5, 0))
     
     def delete_selected_marker(listbox):
         selection = listbox.curselection()
