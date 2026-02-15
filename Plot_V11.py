@@ -117,6 +117,48 @@ def _unit_factor(unit_label: str) -> float:
     prefix = s[0]
     return SI_PREFIX_FACTORS.get(prefix, 1.0)
 
+def format_number_eu(x, pos=None):
+    """
+    Format numbers using European decimal separator (comma).
+    Keeps scientific notation but replaces decimal point in mantissa.
+    """
+    try:
+        s = f"{x:g}"
+    except Exception:
+        s = str(x)
+    s = s.replace('E', 'e')
+    if 'e' in s:
+        mantissa, exp = s.split('e', 1)
+        mantissa = mantissa.replace('.', ',')
+        return f"{mantissa}e{exp}"
+    return s.replace('.', ',')
+
+
+def format_sci_eu(x, digits=2):
+    try:
+        s = f"{x:.{digits}e}"
+    except Exception:
+        s = str(x)
+    mantissa, exp = s.replace('E','e').split('e', 1)
+    return f"{mantissa.replace('.', ',')}e{exp}"
+
+def format_number_us(x, pos=None):
+    """
+    Format numbers using US decimal separator (point).
+    Keeps scientific notation and normalizes to lowercase 'e'.
+    """
+    try:
+        s = f"{x:g}"
+    except Exception:
+        s = str(x)
+    return s.replace('E', 'e')
+
+def format_sci_us(x, digits=2):
+    try:
+        s = f"{x:.{digits}e}"
+    except Exception:
+        s = str(x)
+    return s.replace('E', 'e')
 
 #mpl.rcParams.update({
 #    "text.usetex": True,
@@ -293,6 +335,27 @@ def reload_plot():
                 except Exception:
                     pass
 
+            # Apply tick formatters depending on EU decimal setting
+            try:
+                use_eu = axis_settings.get('use_eu_decimal', True)
+                if use_eu:
+                    ff = mpl.ticker.FuncFormatter(format_number_eu)
+                    ax.xaxis.set_major_formatter(ff)
+                    ax.yaxis.set_major_formatter(ff)
+                    ax.xaxis.set_minor_formatter(ff)
+                    ax.yaxis.set_minor_formatter(ff)
+                    if secondary_axes[idx] is not None:
+                        secondary_axes[idx].yaxis.set_major_formatter(ff)
+                        secondary_axes[idx].yaxis.set_minor_formatter(ff)
+                else:
+                    sf = mpl.ticker.ScalarFormatter(useMathText=False)
+                    ax.xaxis.set_major_formatter(sf)
+                    ax.yaxis.set_major_formatter(sf)
+                    if secondary_axes[idx] is not None:
+                        secondary_axes[idx].yaxis.set_major_formatter(sf)
+            except Exception:
+                pass
+
             idx += 1
 
     # Apply axis settings for each subplot (per-subplot axis_settings stored under axis_settings['subplots'])
@@ -311,11 +374,11 @@ def reload_plot():
             y_unit_lbl = subplot_axis_settings.get('y_unit', '')
             y2_unit_lbl = subplot_axis_settings.get('y2_unit', '')
             try:
-                ax.set_xlabel(f"{subcfg.get('xlabel','')}{f' [{x_unit_lbl}]' if x_unit_lbl else ''}")
+                ax.set_xlabel(f"{subcfg.get('xlabel','')}{f' ({x_unit_lbl})' if x_unit_lbl else ''}")
             except Exception:
                 pass
             try:
-                ax.set_ylabel(f"{subcfg.get('ylabel','')}{f' [{y_unit_lbl}]' if y_unit_lbl else ''}")
+                ax.set_ylabel(f"{subcfg.get('ylabel','')}{f' ({y_unit_lbl})' if y_unit_lbl else ''}")
             except Exception:
                 pass
             
@@ -376,7 +439,7 @@ def reload_plot():
                 # Set secondary ylabel with unit
                 try:
                     sec_label = subplot_settings['subplots'].get(subplot_num, {}).get('ylabel_secondary', '')
-                    sec_ax.set_ylabel(f"{sec_label}{f' [{y2_unit_lbl}]' if y2_unit_lbl else ''}")
+                    sec_ax.set_ylabel(f"{sec_label}{f' ({y2_unit_lbl})' if y2_unit_lbl else ''}")
                 except Exception:
                     pass
                 try:
@@ -390,6 +453,27 @@ def reload_plot():
                         sec_ax.invert_yaxis()
                 except ValueError:
                     print(f"Ungültige Werte für sekundäre Achse in Subplot {subplot_num}")
+
+            # Re-apply tick formatters after scale and tick config
+            try:
+                use_eu = axis_settings.get('use_eu_decimal', True)
+                if use_eu:
+                    ff = mpl.ticker.FuncFormatter(format_number_eu)
+                    ax.xaxis.set_major_formatter(ff)
+                    ax.yaxis.set_major_formatter(ff)
+                    #ax.xaxis.set_minor_formatter(ff)
+                    #ax.yaxis.set_minor_formatter(ff)
+                    if sec_ax is not None:
+                        sec_ax.yaxis.set_major_formatter(ff)
+                        #sec_ax.yaxis.set_minor_formatter(ff)
+                else:
+                    sf = mpl.ticker.ScalarFormatter(useMathText=False)
+                    ax.xaxis.set_major_formatter(sf)
+                    ax.yaxis.set_major_formatter(sf)
+                    if sec_ax is not None:
+                        sec_ax.yaxis.set_major_formatter(sf)
+            except Exception:
+                pass
 
 
     # Plot data in appropriate subplots (each entry has 'subplot' and 'y_axis')
@@ -451,7 +535,9 @@ def reload_plot():
         try:
             if marker['type'] == 'horizontal' and 'y' in marker:
                 yval = marker['y'] * (y_scale_secondary if target_yaxis == 'secondary' else y_scale_primary)
-                auto_label = f"y={yval}"
+                use_eu = axis_settings.get('use_eu_decimal', True)
+                fmt = format_number_eu if use_eu else format_number_us
+                auto_label = f"y={fmt(yval)}"
                 label = ""
                 if legend_settings.get('show_markers', True):
                     if marker.get('legend_mode', 'auto') == 'custom' and marker.get('legend_label'):
@@ -461,7 +547,9 @@ def reload_plot():
                 axis_for_marker.axhline(y=yval, color=marker['color'], linestyle='--', label=label)
             elif marker['type'] == 'vertical' and 'x' in marker:
                 xval = marker['x'] * x_scale
-                auto_label = f"x={xval}"
+                use_eu = axis_settings.get('use_eu_decimal', True)
+                fmt = format_number_eu if use_eu else format_number_us
+                auto_label = f"x={fmt(xval)}"
                 label = ""
                 if legend_settings.get('show_markers', True):
                     if marker.get('legend_mode', 'auto') == 'custom' and marker.get('legend_label'):
@@ -472,7 +560,9 @@ def reload_plot():
             elif marker['type'] == 'point' and 'x' in marker and 'y' in marker:
                 xval = marker['x'] * x_scale
                 yval = marker['y'] * (y_scale_secondary if target_yaxis == 'secondary' else y_scale_primary)
-                auto_label = f"({xval}, {yval})"
+                use_eu = axis_settings.get('use_eu_decimal', True)
+                fmt = format_number_eu if use_eu else format_number_us
+                auto_label = f"({fmt(xval)}, {fmt(yval)})"
                 label = ""
                 if legend_settings.get('show_markers', True):
                     if marker.get('legend_mode', 'auto') == 'custom' and marker.get('legend_label'):
@@ -483,7 +573,9 @@ def reload_plot():
             elif marker['type'] in ('xpoint', 'ypoint') and 'x' in marker and 'y' in marker:
                 xval = marker['x'] * x_scale
                 yval = marker['y'] * (y_scale_secondary if target_yaxis == 'secondary' else y_scale_primary)
-                auto_label = f"({xval:.2e}, {yval:.2e})"
+                use_eu = axis_settings.get('use_eu_decimal', True)
+                fmt_sci = format_sci_eu if use_eu else format_sci_us
+                auto_label = f"({fmt_sci(xval, 2)}, {fmt_sci(yval, 2)})"
                 label = ""
                 if legend_settings.get('show_markers', True):
                     if marker.get('legend_mode', 'auto') == 'custom' and marker.get('legend_label'):
@@ -2021,7 +2113,11 @@ def open_axis_settings():
 
     # Ticks automatisch
     auto_ticks = tk.BooleanVar(value=True)
-    ttk.Checkbutton(axis_window, text="set ticks automatic", variable=auto_ticks).grid(row=5, column=0, columnspan=4, padx=5)
+    ttk.Checkbutton(axis_window, text="Minor Ticks", variable=auto_ticks).grid(row=5, column=0, columnspan=4, padx=5)
+
+    # Use European decimal comma for tick labels
+    eu_decimal_var = tk.BooleanVar(value=axis_settings.get('use_eu_decimal', True))
+    ttk.Checkbutton(axis_window, text="Use European decimal comma", variable=eu_decimal_var).grid(row=9, column=0, columnspan=4, padx=5)
 
     # Units and scale factors
     ttk.Label(axis_window, text="X Unit Label:").grid(row=6, column=0, padx=5, pady=5, sticky="e")
@@ -2115,6 +2211,7 @@ def open_axis_settings():
             "y_scale_factor": ys_val,
             "y2_scale_factor": y2s_val
         }
+        axis_settings['use_eu_decimal'] = eu_decimal_var.get()
         
         reload_plot()
 
@@ -2217,7 +2314,7 @@ def open_axis_settings():
     # Initial update of fields
     update_fields()
 
-    ttk.Button(axis_window, text="Apply", command=apply_settings).grid(row=9, column=0, columnspan=4, pady=10)
+    ttk.Button(axis_window, text="Apply", command=apply_settings).grid(row=10, column=0, columnspan=4, pady=10)
 
 def open_presets_manager():
     def list_presets():
