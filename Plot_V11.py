@@ -8,7 +8,8 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 from tkinter import messagebox, simpledialog
 import json
 import os
-from matplotlib.ticker import LogLocator
+import math
+from matplotlib.ticker import LogLocator, AutoMinorLocator
 
 
 # Global variables
@@ -50,7 +51,8 @@ axis_settings = {
             "invert_x": False,
             "invert_y": False,
             "invert_y2": False,
-            "auto_ticks": True
+            "auto_ticks": True,
+            "force_x_minor_ticks": False
         }
     },
 }
@@ -176,6 +178,50 @@ def format_sci_us(x, digits=2):
     except Exception:
         s = str(x)
     return s.replace('E', 'e')
+
+def format_sci_pow_us(x, digits=2):
+    try:
+        if x == 0:
+            return "0"
+        sign = '-' if x < 0 else ''
+        ax = abs(x)
+        exp = int(math.floor(math.log10(ax)))
+        mant = ax / (10 ** exp)
+        # If it's effectively a pure power of ten, show 10^exp only
+        if abs(mant - 1.0) < 1e-6:
+            return f"{sign}$10^{{{exp}}}$"
+        mant_str = f"{mant:.{digits}f}"
+        return f"{sign}{mant_str}×$10^{{{exp}}}$"
+    except Exception:
+        return str(x)
+
+def format_sci_pow_eu(x, digits=2):
+    try:
+        if x == 0:
+            return "0"
+        sign = '-' if x < 0 else ''
+        ax = abs(x)
+        exp = int(math.floor(math.log10(ax)))
+        mant = ax / (10 ** exp)
+        if abs(mant - 1.0) < 1e-6:
+            return f"{sign}$10^{{{exp}}}$"
+        mant_str = f"{mant:.{digits}f}".replace('.', ',')
+        return f"{sign}{mant_str}×$10^{{{exp}}}$"
+    except Exception:
+        return str(x)
+
+def format_pow10_only(x, pos=None):
+    try:
+        if x == 0:
+            return "0"
+        sign = '-' if x < 0 else ''
+        ax = abs(x)
+        exp = int(round(math.log10(ax)))
+        if abs(ax - (10 ** exp)) / ax < 1e-6:
+            return f"{sign}$10^{{{exp}}}$"
+        return ""
+    except Exception:
+        return str(x)
 
 #mpl.rcParams.update({
 #    "text.usetex": True,
@@ -383,23 +429,48 @@ def reload_plot():
                 sci_x = subplot_axis_settings.get('use_sci_notation_x', False)
                 sci_y = subplot_axis_settings.get('use_sci_notation_y', False)
                 sci_y2 = subplot_axis_settings.get('use_sci_notation_y2', False)
+                x_type = subplot_axis_settings.get('x_axis_type', 'linear')
+                y_type = subplot_axis_settings.get('y_axis_type', 'linear')
+                y2_type = subplot_axis_settings.get('y2_axis_type', 'linear')
 
                 if use_eu:
-                    fx = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_x: format_sci_eu(x, 2) if use_sci else format_number_eu(x, pos))
-                    fy = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_y: format_sci_eu(x, 2) if use_sci else format_number_eu(x, pos))
-                    fy2 = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_y2: format_sci_eu(x, 2) if use_sci else format_number_eu(x, pos))
+                    fx = mpl.ticker.FuncFormatter(
+                        lambda x, pos: (format_pow10_only(x, pos) if (sci_x and x_type == 'log') else (format_sci_pow_eu(x, 2) if sci_x else format_number_eu(x, pos)))
+                    )
+                    fy = mpl.ticker.FuncFormatter(
+                        lambda x, pos: (format_pow10_only(x, pos) if (sci_y and y_type == 'log') else (format_sci_pow_eu(x, 2) if sci_y else format_number_eu(x, pos)))
+                    )
+                    fy2 = mpl.ticker.FuncFormatter(
+                        lambda x, pos: (format_pow10_only(x, pos) if (sci_y2 and y2_type == 'log') else (format_sci_pow_eu(x, 2) if sci_y2 else format_number_eu(x, pos)))
+                    )
                 else:
-                    fx = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_x: format_sci_us(x, 2) if use_sci else format_number_us(x, pos))
-                    fy = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_y: format_sci_us(x, 2) if use_sci else format_number_us(x, pos))
-                    fy2 = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_y2: format_sci_us(x, 2) if use_sci else format_number_us(x, pos))
+                    fx = mpl.ticker.FuncFormatter(
+                        lambda x, pos: (format_pow10_only(x, pos) if (sci_x and x_type == 'log') else (format_sci_pow_us(x, 2) if sci_x else format_number_us(x, pos)))
+                    )
+                    fy = mpl.ticker.FuncFormatter(
+                        lambda x, pos: (format_pow10_only(x, pos) if (sci_y and y_type == 'log') else (format_sci_pow_us(x, 2) if sci_y else format_number_us(x, pos)))
+                    )
+                    fy2 = mpl.ticker.FuncFormatter(
+                        lambda x, pos: (format_pow10_only(x, pos) if (sci_y2 and y2_type == 'log') else (format_sci_pow_us(x, 2) if sci_y2 else format_number_us(x, pos)))
+                    )
 
                 ax.xaxis.set_major_formatter(fx)
-                ax.xaxis.set_minor_formatter(fx)
+                # For log axes with scientific tick style, hide minor labels (we show grid but no text)
+                if sci_x and x_type == 'log':
+                    ax.xaxis.set_minor_formatter(mpl.ticker.NullFormatter())
+                else:
+                    ax.xaxis.set_minor_formatter(fx)
                 ax.yaxis.set_major_formatter(fy)
-                ax.yaxis.set_minor_formatter(fy)
+                if sci_y and y_type == 'log':
+                    ax.yaxis.set_minor_formatter(mpl.ticker.NullFormatter())
+                else:
+                    ax.yaxis.set_minor_formatter(fy)
                 if secondary_axes[idx] is not None:
                     secondary_axes[idx].yaxis.set_major_formatter(fy2)
-                    secondary_axes[idx].yaxis.set_minor_formatter(fy2)
+                    if sci_y2 and y2_type == 'log':
+                        secondary_axes[idx].yaxis.set_minor_formatter(mpl.ticker.NullFormatter())
+                    else:
+                        secondary_axes[idx].yaxis.set_minor_formatter(fy2)
             except Exception:
                 pass
 
@@ -448,15 +519,25 @@ def reload_plot():
                 minor_color = grid_settings.get('minor_color', 'lightgray')
                 minor_lw = grid_settings.get('minor_linewidth', 0.5)
 
-            if subplot_axis_settings.get("auto_ticks", True):
-                # Automatische Ticks: Minor anzeigen und mit Stil zeichnen
+            # Decide minor tick visibility: automatic OR forced override
+            show_minor = bool(subplot_axis_settings.get("auto_ticks", True) or subplot_axis_settings.get("force_x_minor_ticks", False))
+            # Apply explicit X minor locator when forced, independent of automatic toggle
+            try:
+                if subplot_axis_settings.get("force_x_minor_ticks", False):
+                    if subplot_axis_settings.get("x_axis_type", "linear") == "log":
+                        ax.xaxis.set_minor_locator(LogLocator(base=10.0, subs=(2,3,4,5,6,7,8,9)))
+                    else:
+                        ax.xaxis.set_minor_locator(AutoMinorLocator())
+            except Exception:
+                pass
+
+            if show_minor:
                 ax.minorticks_on()
                 try:
                     ax.grid(True, which='minor', color=minor_color, linewidth=minor_lw)
                 except Exception:
                     ax.grid(True, which='minor')
             else:
-                # Minor-Ticks aus
                 ax.minorticks_off()
                 try:
                     ax.grid(False, which='minor')
@@ -476,6 +557,23 @@ def reload_plot():
                     ax.invert_xaxis()
                 if subplot_axis_settings.get("invert_y", False):
                     ax.invert_yaxis()
+
+                # Enforce decade-by-decade major ticks on log X if requested
+                if subplot_axis_settings.get("force_x_minor_ticks", False) and subplot_axis_settings.get("x_axis_type", "linear") == "log":
+                    try:
+                        xl = ax.get_xlim()
+                        # handle inverted axes
+                        x_left = min(xl[0], xl[1])
+                        x_right = max(xl[0], xl[1])
+                        if x_left > 0 and x_right > 0:
+                            start_dec = math.floor(math.log10(x_left))
+                            end_dec = math.ceil(math.log10(x_right))
+                            ticks = [10 ** k for k in range(start_dec, end_dec + 1)]
+                            ax.xaxis.set_major_locator(mpl.ticker.FixedLocator(ticks))
+                            # also ensure minor ticks present at 2..9 of each decade
+                            ax.xaxis.set_minor_locator(LogLocator(base=10.0, subs=(2,3,4,5,6,7,8,9)))
+                    except Exception:
+                        pass
             except ValueError:
                 print(f"Ungültige Werte für Achsenskalierung in Subplot {subplot_num}")
             
@@ -508,15 +606,30 @@ def reload_plot():
                 sci_x = subplot_axis_settings.get('use_sci_notation_x', False)
                 sci_y = subplot_axis_settings.get('use_sci_notation_y', False)
                 sci_y2 = subplot_axis_settings.get('use_sci_notation_y2', False)
+                x_type = subplot_axis_settings.get('x_axis_type', 'linear')
+                y_type = subplot_axis_settings.get('y_axis_type', 'linear')
+                y2_type = subplot_axis_settings.get('y2_axis_type', 'linear')
 
                 if use_eu:
-                    fx = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_x: format_sci_eu(x, 2) if use_sci else format_number_eu(x, pos))
-                    fy = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_y: format_sci_eu(x, 2) if use_sci else format_number_eu(x, pos))
-                    fy2 = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_y2: format_sci_eu(x, 2) if use_sci else format_number_eu(x, pos))
+                    fx = mpl.ticker.FuncFormatter(
+                        lambda x, pos: (format_pow10_only(x, pos) if (sci_x and x_type == 'log') else (format_sci_pow_eu(x, 2) if sci_x else format_number_eu(x, pos)))
+                    )
+                    fy = mpl.ticker.FuncFormatter(
+                        lambda x, pos: (format_pow10_only(x, pos) if (sci_y and y_type == 'log') else (format_sci_pow_eu(x, 2) if sci_y else format_number_eu(x, pos)))
+                    )
+                    fy2 = mpl.ticker.FuncFormatter(
+                        lambda x, pos: (format_pow10_only(x, pos) if (sci_y2 and y2_type == 'log') else (format_sci_pow_eu(x, 2) if sci_y2 else format_number_eu(x, pos)))
+                    )
                 else:
-                    fx = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_x: format_sci_us(x, 2) if use_sci else format_number_us(x, pos))
-                    fy = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_y: format_sci_us(x, 2) if use_sci else format_number_us(x, pos))
-                    fy2 = mpl.ticker.FuncFormatter(lambda x, pos, use_sci=sci_y2: format_sci_us(x, 2) if use_sci else format_number_us(x, pos))
+                    fx = mpl.ticker.FuncFormatter(
+                        lambda x, pos: (format_pow10_only(x, pos) if (sci_x and x_type == 'log') else (format_sci_pow_us(x, 2) if sci_x else format_number_us(x, pos)))
+                    )
+                    fy = mpl.ticker.FuncFormatter(
+                        lambda x, pos: (format_pow10_only(x, pos) if (sci_y and y_type == 'log') else (format_sci_pow_us(x, 2) if sci_y else format_number_us(x, pos)))
+                    )
+                    fy2 = mpl.ticker.FuncFormatter(
+                        lambda x, pos: (format_pow10_only(x, pos) if (sci_y2 and y2_type == 'log') else (format_sci_pow_us(x, 2) if sci_y2 else format_number_us(x, pos)))
+                    )
 
                 ax.xaxis.set_major_formatter(fx)
                 ax.yaxis.set_major_formatter(fy)
@@ -2247,9 +2360,11 @@ def open_axis_settings():
     ttk.Checkbutton(axis_window, text="invert X-Axis", variable=invert_x).grid(row=4, column=0, columnspan=2, padx=5)
     ttk.Checkbutton(axis_window, text="invert Y-Axis", variable=invert_y).grid(row=4, column=2, columnspan=2, padx=5)
 
-    # Ticks automatisch
+    # Ticks automatisch + Override für X-MinorTicks
     auto_ticks = tk.BooleanVar(value=True)
-    ttk.Checkbutton(axis_window, text="Minor Ticks", variable=auto_ticks).grid(row=5, column=0, columnspan=4, padx=5)
+    force_x_minor_var = tk.BooleanVar(value=False)
+    ttk.Checkbutton(axis_window, text="Minor Ticks", variable=auto_ticks).grid(row=5, column=0,columnspan=2, padx=5)
+    ttk.Checkbutton(axis_window, text="Force steps in decades", variable=force_x_minor_var).grid(row=5, column=2, columnspan=2, padx=5)
 
     # Use European decimal comma for tick labels
     eu_decimal_var = tk.BooleanVar(value=axis_settings.get('use_eu_decimal', True))
@@ -2351,6 +2466,7 @@ def open_axis_settings():
             "invert_y": invert_y.get(),
             "invert_y2": invert_y2.get(),
             "auto_ticks": auto_ticks.get(),
+            "force_x_minor_ticks": bool(force_x_minor_var.get()),
             # Unit labels and scale factors (unit label preferred)
             "x_unit": xu_lbl,
             "y_unit": yu_lbl,
@@ -2394,6 +2510,10 @@ def open_axis_settings():
         invert_x.set(subplot_settings.get('invert_x', False))
         invert_y.set(subplot_settings.get('invert_y', False))
         auto_ticks.set(subplot_settings.get('auto_ticks', True))
+        try:
+            force_x_minor_var.set(subplot_settings.get('force_x_minor_ticks', False))
+        except Exception:
+            pass
 
         # Units and scale factors for primary axes
         try:
