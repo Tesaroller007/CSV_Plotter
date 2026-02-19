@@ -1,6 +1,5 @@
 import tkinter as tk
 from tkinter import filedialog, colorchooser, ttk
-import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -10,6 +9,7 @@ import json
 import os
 import math
 from matplotlib.ticker import LogLocator, AutoMinorLocator
+from matplotlib.patches import Rectangle
 
 
 # Global variables
@@ -223,6 +223,47 @@ def format_pow10_only(x, pos=None):
     except Exception:
         return str(x)
 
+def make_axis_formatter(use_eu: bool, use_scientific: bool, axis_type: str):
+    """Create a tick formatter for one axis (per subplot, per axis).
+
+    - use_eu: True -> EU Dezimaltrennzeichen, False -> US
+    - use_scientific: True -> Scientific, False -> normale Zahlen
+    - axis_type: 'linear' oder 'log' (entscheidet, ob reine 10^n-Labels genutzt werden)
+    """
+    if use_eu:
+        def _fmt(x, pos=None):
+            if use_scientific and axis_type == 'log':
+                return format_pow10_only(x, pos)
+            if use_scientific:
+                return format_sci_pow_eu(x, 2)
+            return format_number_eu(x, pos)
+    else:
+        def _fmt(x, pos=None):
+            if use_scientific and axis_type == 'log':
+                return format_pow10_only(x, pos)
+            if use_scientific:
+                return format_sci_pow_us(x, 2)
+            return format_number_us(x, pos)
+    return mpl.ticker.FuncFormatter(_fmt)
+
+def make_axis_formatter(use_eu: bool, use_scientific: bool, axis_type: str):
+    if use_eu:
+        def _fmt(x, pos):
+            if use_scientific and axis_type == 'log':
+                return format_pow10_only(x, pos)
+            if use_scientific:
+                return format_sci_pow_eu(x, 2)
+            return format_number_eu(x, pos)
+    else:
+        def _fmt(x, pos):
+            if use_scientific and axis_type == 'log':
+                return format_pow10_only(x, pos)
+            if use_scientific:
+                return format_sci_pow_us(x, 2)
+            return format_number_us(x, pos)
+    return mpl.ticker.FuncFormatter(_fmt)
+
+
 #mpl.rcParams.update({
 #    "text.usetex": True,
 #    "font.family": "serif",
@@ -433,26 +474,11 @@ def reload_plot():
                 y_type = subplot_axis_settings.get('y_axis_type', 'linear')
                 y2_type = subplot_axis_settings.get('y2_axis_type', 'linear')
 
-                if use_eu:
-                    fx = mpl.ticker.FuncFormatter(
-                        lambda x, pos: (format_pow10_only(x, pos) if (sci_x and x_type == 'log') else (format_sci_pow_eu(x, 2) if sci_x else format_number_eu(x, pos)))
-                    )
-                    fy = mpl.ticker.FuncFormatter(
-                        lambda x, pos: (format_pow10_only(x, pos) if (sci_y and y_type == 'log') else (format_sci_pow_eu(x, 2) if sci_y else format_number_eu(x, pos)))
-                    )
-                    fy2 = mpl.ticker.FuncFormatter(
-                        lambda x, pos: (format_pow10_only(x, pos) if (sci_y2 and y2_type == 'log') else (format_sci_pow_eu(x, 2) if sci_y2 else format_number_eu(x, pos)))
-                    )
-                else:
-                    fx = mpl.ticker.FuncFormatter(
-                        lambda x, pos: (format_pow10_only(x, pos) if (sci_x and x_type == 'log') else (format_sci_pow_us(x, 2) if sci_x else format_number_us(x, pos)))
-                    )
-                    fy = mpl.ticker.FuncFormatter(
-                        lambda x, pos: (format_pow10_only(x, pos) if (sci_y and y_type == 'log') else (format_sci_pow_us(x, 2) if sci_y else format_number_us(x, pos)))
-                    )
-                    fy2 = mpl.ticker.FuncFormatter(
-                        lambda x, pos: (format_pow10_only(x, pos) if (sci_y2 and y2_type == 'log') else (format_sci_pow_us(x, 2) if sci_y2 else format_number_us(x, pos)))
-                    )
+                # Jeder Subplot / jede Achse bekommt ihren eigenen Formatter,
+                # basierend auf den Einstellungen dieses Subplots.
+                fx = make_axis_formatter(use_eu, sci_x, x_type)
+                fy = make_axis_formatter(use_eu, sci_y, y_type)
+                fy2 = make_axis_formatter(use_eu, sci_y2, y2_type)
 
                 ax.xaxis.set_major_formatter(fx)
                 # For log axes with scientific tick style, hide minor labels (we show grid but no text)
@@ -534,9 +560,21 @@ def reload_plot():
             if show_minor:
                 ax.minorticks_on()
                 try:
-                    ax.grid(True, which='minor', color=minor_color, linewidth=minor_lw)
+                    if subplot_axis_settings.get("force_x_minor_ticks", False) and subplot_axis_settings.get("x_axis_type", "linear") == "log":
+                        # Draw only X minor grid lines in log style, hide Y minor grid lines
+                        ax.xaxis.grid(True, which='minor', color=minor_color, linewidth=minor_lw)
+                        try:
+                            ax.yaxis.grid(False, which='minor')
+                        except Exception:
+                            pass
+                    else:
+                        ax.grid(True, which='minor', color=minor_color, linewidth=minor_lw)
                 except Exception:
-                    ax.grid(True, which='minor')
+                    # Fallback if axis-specific grid isn't available
+                    try:
+                        ax.grid(True, which='minor')
+                    except Exception:
+                        pass
             else:
                 ax.minorticks_off()
                 try:
@@ -572,6 +610,19 @@ def reload_plot():
                             ax.xaxis.set_major_locator(mpl.ticker.FixedLocator(ticks))
                             # also ensure minor ticks present at 2..9 of each decade
                             ax.xaxis.set_minor_locator(LogLocator(base=10.0, subs=(2,3,4,5,6,7,8,9)))
+                            # re-apply minor grid to reflect updated locators
+                            try:
+                                ax.minorticks_on()
+                                ax.xaxis.grid(True, which='minor')
+                                try:
+                                    ax.yaxis.grid(False, which='minor')
+                                except Exception:
+                                    pass
+                            except Exception:
+                                try:
+                                    ax.grid(True, which='minor')
+                                except Exception:
+                                    pass
                     except Exception:
                         pass
             except ValueError:
@@ -610,26 +661,9 @@ def reload_plot():
                 y_type = subplot_axis_settings.get('y_axis_type', 'linear')
                 y2_type = subplot_axis_settings.get('y2_axis_type', 'linear')
 
-                if use_eu:
-                    fx = mpl.ticker.FuncFormatter(
-                        lambda x, pos: (format_pow10_only(x, pos) if (sci_x and x_type == 'log') else (format_sci_pow_eu(x, 2) if sci_x else format_number_eu(x, pos)))
-                    )
-                    fy = mpl.ticker.FuncFormatter(
-                        lambda x, pos: (format_pow10_only(x, pos) if (sci_y and y_type == 'log') else (format_sci_pow_eu(x, 2) if sci_y else format_number_eu(x, pos)))
-                    )
-                    fy2 = mpl.ticker.FuncFormatter(
-                        lambda x, pos: (format_pow10_only(x, pos) if (sci_y2 and y2_type == 'log') else (format_sci_pow_eu(x, 2) if sci_y2 else format_number_eu(x, pos)))
-                    )
-                else:
-                    fx = mpl.ticker.FuncFormatter(
-                        lambda x, pos: (format_pow10_only(x, pos) if (sci_x and x_type == 'log') else (format_sci_pow_us(x, 2) if sci_x else format_number_us(x, pos)))
-                    )
-                    fy = mpl.ticker.FuncFormatter(
-                        lambda x, pos: (format_pow10_only(x, pos) if (sci_y and y_type == 'log') else (format_sci_pow_us(x, 2) if sci_y else format_number_us(x, pos)))
-                    )
-                    fy2 = mpl.ticker.FuncFormatter(
-                        lambda x, pos: (format_pow10_only(x, pos) if (sci_y2 and y2_type == 'log') else (format_sci_pow_us(x, 2) if sci_y2 else format_number_us(x, pos)))
-                    )
+                fx = make_axis_formatter(use_eu, sci_x, x_type)
+                fy = make_axis_formatter(use_eu, sci_y, y_type)
+                fy2 = make_axis_formatter(use_eu, sci_y2, y2_type)
 
                 ax.xaxis.set_major_formatter(fx)
                 ax.yaxis.set_major_formatter(fy)
@@ -862,6 +896,13 @@ def reload_plot():
 
             # Create inset axes
             axins = inset_axes(ax_parent, width=width, height=height, loc=loc, borderpad=borderpad)
+            # Optional inset background color
+            try:
+                bg = region.get('inset_bg')
+                if bg:
+                    axins.set_facecolor(bg)
+            except Exception:
+                pass
 
             # Plot only entries that match both subplot and y-axis choice
             plotted_any = False
@@ -894,6 +935,20 @@ def reload_plot():
                 y_scale = float(subplot_axis_settings.get('y2_scale_factor' if y_axis_choice=='secondary' else 'y_scale_factor', _unit_factor(subplot_axis_settings.get('y2_unit' if y_axis_choice=='secondary' else 'y_unit', ''))))
                 axins.set_xlim((region['x'][0] * x_scale, region['x'][1] * x_scale))
                 axins.set_ylim((region['y'][0] * y_scale, region['y'][1] * y_scale))
+                
+                # Optional: highlight the zoomed area on the parent plot
+                try:
+                    if region.get('highlight', False):
+                        hcol = region.get('highlight_color', '#e6e6e6')
+                        halpha = float(region.get('highlight_alpha', 0.2))
+                        rx = region['x'][0] * x_scale
+                        ry = region['y'][0] * y_scale
+                        rw = (region['x'][1] - region['x'][0]) * x_scale
+                        rh = (region['y'][1] - region['y'][0]) * y_scale
+                        rect = Rectangle((rx, ry), rw, rh, facecolor=hcol, edgecolor='none', alpha=halpha, zorder=0.5)
+                        ax_plot.add_patch(rect)
+                except Exception:
+                    pass
                 
                 if region.get('show_grid', True):
                     c = grid_settings.get('color', 'gray')
@@ -2041,7 +2096,11 @@ def open_zoom_settings():
                 'ticks': plot_ticks if plot_ticks else False,
                 'border_pad': borderpad if borderpad else 1.5,
                 'subplot': subplot_num,
-                'y_axis': y_axis_choice
+                'y_axis': y_axis_choice,
+                'inset_bg': inset_bg_var.get().strip(),
+                'highlight': bool(highlight_var.get()),
+                'highlight_color': highlight_color_var.get().strip() or '#e6e6e6',
+                'highlight_alpha': float(highlight_alpha_var.get() or 0.2)
             }
 
             # Wenn ein Index gespeichert ist, ersetze den Eintrag
@@ -2064,7 +2123,13 @@ def open_zoom_settings():
     def update_listbox():
         zoom_listbox.delete(0, tk.END)
         for i, region in enumerate(zoom_regions):
-            zoom_listbox.insert(tk.END, f"{i+1}: subplot={region.get('subplot',1)}, y-axis={region.get('y_axis','primary')}, x={region['x']}, y={region['y']}, grid={region.get('show_grid','')}, ticks={region.get('ticks','')}, size=({region.get('width','')}, {region.get('height','')}), loc={region.get('loc','')}, space={region.get('border_pad', '')}")
+            extra = []
+            if region.get('inset_bg'):
+                extra.append(f"bg={region.get('inset_bg')}")
+            if region.get('highlight', False):
+                extra.append(f"highlight={region.get('highlight_color','#e6e6e6')}@{region.get('highlight_alpha',0.2)}")
+            extra_str = (", ".join(extra)) if extra else ""
+            zoom_listbox.insert(tk.END, f"{i+1}: subplot={region.get('subplot',1)}, y-axis={region.get('y_axis','primary')}, x={region['x']}, y={region['y']}, grid={region.get('show_grid','')}, ticks={region.get('ticks','')}, size=({region.get('width','')}, {region.get('height','')}), loc={region.get('loc','')}, space={region.get('border_pad', '')}{(', '+extra_str) if extra_str else ''}")
 
     def delete_selected_region():
         selection = zoom_listbox.curselection()
@@ -2106,6 +2171,14 @@ def open_zoom_settings():
             plot_ticks_var.set(region.get('ticks', False))
             space_entry.delete(0, tk.END)
             space_entry.insert(0, region.get('border_pad', 1.5))
+
+            inset_bg_var.set(region.get('inset_bg', ''))
+            highlight_var.set(bool(region.get('highlight', False)))
+            highlight_color_var.set(region.get('highlight_color', '#e6e6e6'))
+            try:
+                highlight_alpha_var.set(str(region.get('highlight_alpha', 0.2)))
+            except Exception:
+                highlight_alpha_var.set('0.2')
 
             # Merke dir den Index für späteres Überschreiben
             zoom_window.selected_index = index
@@ -2215,16 +2288,59 @@ def open_zoom_settings():
     loc_corner2_menu = tk.OptionMenu(zoom_window, loc_corner2_entry, *loc_corner2_options)
     loc_corner2_menu.grid(row=6, column=3)
 
-    tk.Button(zoom_window, text="Apply Zoom", command=apply_zoom).grid(row=7, column=0, columnspan=2, pady=10)
-    tk.Button(zoom_window, text="Delete Selected", command=delete_selected_region).grid(row=7, column=2, columnspan=2, pady=10)
+    # Inset background color (swatch)
+    tk.Label(zoom_window, text="Inset BG Color:").grid(row=7, column=0, sticky="w")
+    inset_bg_var = tk.StringVar(value="")
+    inset_bg_swatch = tk.Label(zoom_window, width=8, relief="sunken")
+    inset_bg_swatch.grid(row=7, column=1)
+    def _update_inset_bg_swatch(*_):
+        val = inset_bg_var.get() or "#ffffff"
+        try:
+            inset_bg_swatch.configure(bg=val)
+        except Exception:
+            inset_bg_swatch.configure(bg="#ffffff")
+    def pick_inset_bg(event=None):
+        c = colorchooser.askcolor(title="Pick inset background color")
+        if c and c[1]:
+            inset_bg_var.set(c[1])
+    inset_bg_var.trace_add('write', _update_inset_bg_swatch)
+    _update_inset_bg_swatch()
+    inset_bg_swatch.bind("<Button-1>", pick_inset_bg)
 
-    tk.Label(zoom_window, text="Zoom Regions:").grid(row=8, column=0, columnspan=4, sticky="w")
+    # Highlight region options
+    highlight_var = tk.BooleanVar(value=False)
+    tk.Checkbutton(zoom_window, text="Highlight zoom region", variable=highlight_var).grid(row=8, column=0, sticky="w")
+    highlight_color_var = tk.StringVar(value="#e6e6e6")
+    highlight_color_swatch = tk.Label(zoom_window, width=8, relief="sunken")
+    highlight_color_swatch.grid(row=8, column=1)
+    def _update_highlight_swatch(*_):
+        val = highlight_color_var.get() or "#e6e6e6"
+        try:
+            highlight_color_swatch.configure(bg=val)
+        except Exception:
+            highlight_color_swatch.configure(bg="#e6e6e6")
+    def pick_highlight_color(event=None):
+        c = colorchooser.askcolor(title="Pick highlight color")
+        if c and c[1]:
+            highlight_color_var.set(c[1])
+    highlight_color_var.trace_add('write', _update_highlight_swatch)
+    _update_highlight_swatch()
+    highlight_color_swatch.bind("<Button-1>", pick_highlight_color)
+    tk.Label(zoom_window, text="Alpha (0-1):").grid(row=8, column=2, sticky="w")
+    highlight_alpha_var = tk.StringVar(value="0.2")
+    highlight_alpha_entry = tk.Entry(zoom_window, textvariable=highlight_alpha_var, width=6)
+    highlight_alpha_entry.grid(row=8, column=3, sticky="w")
+
+    tk.Button(zoom_window, text="Apply Zoom", command=apply_zoom).grid(row=9, column=0, columnspan=2, pady=10)
+    tk.Button(zoom_window, text="Delete Selected", command=delete_selected_region).grid(row=9, column=2, columnspan=2, pady=10)
+
+    tk.Label(zoom_window, text="Zoom Regions:").grid(row=10, column=0, columnspan=4, sticky="w")
     zoom_listbox = tk.Listbox(zoom_window, width=120)
-    zoom_listbox.grid(row=9, column=0, columnspan=4, sticky="w")
+    zoom_listbox.grid(row=11, column=0, columnspan=4, sticky="w")
     zoom_listbox.bind("<Double-Button-1>", edit_selected_region)
 
     status_label = tk.Label(zoom_window, text="Kein Eintrag ausgewählt", fg="blue")
-    status_label.grid(row=10, column=0, columnspan=4, sticky="w", pady=(5, 0))
+    status_label.grid(row=12, column=0, columnspan=4, sticky="w", pady=(5, 0))
 
     # initialize y-axis menu according to current subplot selection
     update_yaxis_menu()
@@ -2491,7 +2607,7 @@ def open_axis_settings():
 
         has_secondary_y_axis = False
         for e in entries:
-            if int(e.get('subplot')) == int(subplot_num):
+            if int(e.get('subplot', 1)) == int(subplot_num):
                 if e.get('y_axis') == 'secondary':
                     has_secondary_y_axis = True
         
@@ -2561,9 +2677,7 @@ def open_axis_settings():
             # Secondary unit and scale
             try:
                 y2_unit_entry.delete(0, tk.END)
-                y2_unit_entry.insert(0, subplot_settings.get('y2_unit', ''))
                 y2_scale_entry.delete(0, tk.END)
-                y2_scale_entry.insert(0, str(subplot_settings.get('y2_scale_factor', _unit_factor(subplot_settings.get('y2_unit', '')))))
             except Exception:
                 pass
         else:
@@ -3018,7 +3132,7 @@ def show_help():
         "- 'All in subplot 1': Alle Legenden in Subplot 1 zusammenfassen.\n"
         "- 'Show marker in legend': Marker in der Legende anzeigen (inkl. automatischer oder benutzerdefinierter Namen).\n"
         "\n"
-        "6) Zoom/Inserts:\n"
+        "6) Zoom/Insets:\n"
         "- Zoom Settings: Inset-Achsen pro Subplot hinzufügen.\n"
         "- Größe (Breite/Höhe), Position (loc) und Rand (border pad) definieren.\n"
         "- Bereich (x/y) festlegen und Verbinder (mark_inset) setzen.\n"
@@ -3080,14 +3194,14 @@ def show_help():
         "- Ranges: Set X/Y/Y2 min/max; invert axes (X/Y/Y2).\n"
         "- Minor ticks: Toggle on/off.\n"
         "- EU format: Use comma as decimal separator for tick labels.\n"
-        "- Scientific notation: Per subplot choose for X, Y, and Y2 (e.g., 1e3 vs 1000).\n"
-        "- Units/scale: Enter X/Y/Y2 unit label or scale factor. Supports SI prefixes (e.g., m, k, M).\n"
+        "- Wissenschaftliche Notation: Pro Subplot separat für X, Y und Y2 wählen (z.B. 1e3 statt 1000).\n"
+        "- Einheiten/Skalierung: X/Y/Y2 Unit Label oder Scale Factor eingeben. Unterstützt SI-Präfixe (z.B. m, k, M).\n"
         "\n"
         "4) Grid Settings:\n"
-        "- Visibility: Show/hide grid.\n"
-        "- Color/linewidth: Configure major grid style.\n"
-        "- Ticks: Independently show/hide left (Y), bottom (X), right (Y2).\n"
-        "- Minor grid: Own color/linewidth; option 'same as major'.\n"
+        "- Sichtbarkeit: Grid anzeigen/verbergen.\n"
+        "- Farbe/Strichstärke: Für das normale Grid einstellen.\n"
+        "- Ticks: Links (Y), unten (X) und rechts (Y2) separat ein-/ausblenden.\n"
+        "- Minor grid: Eigene Farbe/Strichstärke; Option 'gleich wie Major-Grid'.\n"
         "- 'Use Subplot 1 for all': Apply Subplot 1 visibility/tick settings to all.\n"
         "- Reset: Restores all grid and minor grid values globally and per subplot to defaults.\n"
         "\n"
@@ -3099,30 +3213,30 @@ def show_help():
         "\n"
         "6) Zoom/Insets:\n"
         "- Zoom Settings: Add inset axes per subplot.\n"
-        "- Set size (width/height), position (loc), and border pad.\n"
-        "- Define ranges (x/y) and add connectors (mark_inset).\n"
-        "- Choose primary/secondary axis for inset plotting.\n"
+        "- Größe (Breite/Höhe), Position (loc) und Rand (border pad) definieren.\n"
+        "- Bereich (x/y) festlegen und Verbinder (mark_inset) setzen.\n"
+        "- Wahl der Achse (primär/sekundär) für den Inset-Plot.\n"
         "\n"
         "7) Markers:\n"
-        "- Types: horizontal, vertical, point, xpoint, ypoint.\n"
-        "- Select target subplot and axis (primary/secondary).\n"
-        "- Choose color.\n"
-        "- Legend name: 'Auto' (respects EU/US and scientific toggles) or 'Custom' text.\n"
-        "- For xpoint/ypoint: select the related plot within the subplot.\n"
-        "- Edit marker entries from the list.\n"
+        "- Typen: horizontal, vertical, point, xpoint, ypoint.\n"
+        "- Ziel-Subplot und Achse (primär/sekundär) wählen.\n"
+        "- Farbe setzen.\n"
+        "- Legend Name: 'Auto' (respects EU/US and scientific toggles) or 'Custom' text.\n"
+        "- Bei xpoint/ypoint: zugehörigen Plot im Subplot auswählen.\n"
+        "- Markereinträge lassen sich aus der Liste bearbeiten.\n"
         "\n"
         "8) Plot Layout (Size/Spacing):\n"
         "- Global: Enable Automatic (tight_layout) or Constrained Layout.\n"
         "- Size: Plot width/height (per subplot, inches).\n"
         "- Spacing: wspace (horizontal), hspace (vertical). Constrained layout uses pads to control spacing.\n"
         "- Margins: left/right/top/bottom.\n"
-        "- Per subplot: Height/Width ratios and inner pads (left/right/top/bottom) via overrides.\n"
+        "- Pro subplot: Height/Width ratios and inner pads (left/right/top/bottom) via overrides.\n"
         "\n"
         "9) Presets:\n"
         "- Presets Manager: Save/load/delete; import/export JSON.\n"
         "- Presets include subplots, axis, grid, legend, zoom, markers, layout, and save settings.\n"
         "\n"
-        "10) Saving:\n"
+        "10) Speichern:\n"
         "- Save Plot: Choose format (PDF/SVG/EPS) and size (inches).\n"
     )
 
